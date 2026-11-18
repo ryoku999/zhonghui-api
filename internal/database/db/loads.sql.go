@@ -303,24 +303,27 @@ func (q *Queries) UpdateLoadRecord(ctx context.Context, arg UpdateLoadRecordPara
 
 const writeLoadProvenance = `-- name: WriteLoadProvenance :exec
 INSERT INTO field_provenance (load_record_id, version, field_name, source, verification_status)
-VALUES ($1, $2, $3, $4, $5)
+SELECT $1::uuid, $2::integer, entry.field_name,
+       ($3::text[])[entry.position::integer],
+       ($4::text[])[entry.position::integer]
+FROM unnest($5::text[]) WITH ORDINALITY AS entry(field_name, position)
 `
 
 type WriteLoadProvenanceParams struct {
-	LoadRecordID       pgtype.UUID
-	Version            int32
-	FieldName          string
-	Source             string
-	VerificationStatus string
+	LoadRecordID         pgtype.UUID
+	Version              int32
+	Sources              []string
+	VerificationStatuses []string
+	FieldNames           []string
 }
 
 func (q *Queries) WriteLoadProvenance(ctx context.Context, arg WriteLoadProvenanceParams) error {
 	_, err := q.db.Exec(ctx, writeLoadProvenance,
 		arg.LoadRecordID,
 		arg.Version,
-		arg.FieldName,
-		arg.Source,
-		arg.VerificationStatus,
+		arg.Sources,
+		arg.VerificationStatuses,
+		arg.FieldNames,
 	)
 	return err
 }

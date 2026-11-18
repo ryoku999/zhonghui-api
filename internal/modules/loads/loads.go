@@ -33,11 +33,11 @@ func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler, exter
 		return err
 	}
 	s := service{pool: pool, db: db.New(pool), lima: lima, lookups: external}
-	routes := app.Group("/api/v1/loads", auth.RequestContext, protected)
-	routes.Post("/", s.create)
-	routes.Get("/", s.list)
-	routes.Get("/:id", s.detail)
-	routes.Patch("/:id", s.update)
+	routes := app.Group("/api/v1/loads")
+	routes.Post("/", auth.RequestContextWithTimeout(8*time.Second), protected, s.create)
+	routes.Get("/", auth.RequestContext, protected, s.list)
+	routes.Get("/:id", auth.RequestContext, protected, s.detail)
+	routes.Patch("/:id", auth.RequestContext, protected, s.update)
 	app.Get("/api/v1/dashboard", auth.RequestContext, protected, s.dashboard)
 	app.Get("/api/v1/audit", auth.RequestContext, protected, auth.RequireAdmin, s.auditEntries)
 	app.Get("/api/v1/reports/loads.xlsx", auth.RequestContext, protected, s.export)
@@ -138,11 +138,16 @@ func (s service) create(c fiber.Ctx) error {
 			return err
 		}
 		history["locationId"], history["locationName"] = "HISTORY", "HISTORY"
-		for _, field := range []string{
+		fields := []string{
 			"locationId", "locationName", "ruc", "legalName", "documentType", "documentNumber",
 			"firstNames", "lastNames", "licenseNumber", "phone", "tractorPlate", "trailerPlate", "trailerType",
 			"unitDescription", "notes",
-		} {
+		}
+		provenance := db.WriteLoadProvenanceParams{
+			LoadRecordID: id, Version: 1, FieldNames: fields,
+			Sources: make([]string, len(fields)), VerificationStatuses: make([]string, len(fields)),
+		}
+		for i, field := range fields {
 			source := history[field]
 			verification := "UNVERIFIED"
 			if source == "" {
@@ -151,11 +156,11 @@ func (s service) create(c fiber.Ctx) error {
 			if external[field] {
 				source, verification = "EXTERNAL_API", "VERIFIED"
 			}
-			if err := q.WriteLoadProvenance(ctx, db.WriteLoadProvenanceParams{
-				LoadRecordID: id, Version: 1, FieldName: field, Source: source, VerificationStatus: verification,
-			}); err != nil {
-				return err
-			}
+			provenance.Sources[i] = source
+			provenance.VerificationStatuses[i] = verification
+		}
+		if err := q.WriteLoadProvenance(ctx, provenance); err != nil {
+			return err
 		}
 		if err := q.SaveLoadRequest(ctx, db.SaveLoadRequestParams{
 			UserID: actor.ID, IdempotencyKey: key, LoadRecordID: id, RequestHash: digest[:],

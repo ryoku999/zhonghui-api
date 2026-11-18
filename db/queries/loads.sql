@@ -56,7 +56,10 @@ INSERT INTO load_record_snapshots (load_record_id, version, fields) VALUES ($1, 
 
 -- name: WriteLoadProvenance :exec
 INSERT INTO field_provenance (load_record_id, version, field_name, source, verification_status)
-VALUES ($1, $2, $3, $4, $5);
+SELECT sqlc.arg(load_record_id)::uuid, sqlc.arg(version)::integer, entry.field_name,
+       (sqlc.arg(sources)::text[])[entry.position::integer],
+       (sqlc.arg(verification_statuses)::text[])[entry.position::integer]
+FROM unnest(sqlc.arg(field_names)::text[]) WITH ORDINALITY AS entry(field_name, position);
 
 -- name: CopyLoadProvenance :exec
 INSERT INTO field_provenance (load_record_id, version, field_name, source, verification_status)
