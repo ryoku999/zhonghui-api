@@ -1,0 +1,9 @@
+services:
+  api:
+    networks:
+      - local-db
+
+networks:
+  local-db:
+    external: true
+    name: ${ZHONGHUI_DB_NETWORK:-zhonghui-db_default}

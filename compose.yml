@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+    env_file:
+      - ${ZHONGHUI_API_ENV_FILE:-.env}
+    environment:
+      PORT: "8000"
+      HTTP_ADDR: "0.0.0.0:8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "4", "-O", "/dev/null", "http://127.0.0.1:8000/api/v1/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
