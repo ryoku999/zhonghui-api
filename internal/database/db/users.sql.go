@@ -80,12 +80,21 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 
 const listUsers = `-- name: ListUsers :many
 SELECT id, username, display_name, role, is_active
-FROM users ORDER BY username LIMIT $1 OFFSET $2
+FROM users
+WHERE ($1::text = '' OR role = $1::text)
+  AND (NOT $2::boolean OR is_active)
+  AND (strpos(username, lower($3::text)) > 0
+       OR strpos(lower(display_name), lower($3::text)) > 0)
+ORDER BY username
+LIMIT $5::integer OFFSET $4::integer
 `
 
 type ListUsersParams struct {
-	Limit  int32
-	Offset int32
+	RoleFilter string
+	OnlyActive bool
+	Search     string
+	PageOffset int32
+	PageLimit  int32
 }
 
 type ListUsersRow struct {
@@ -97,7 +106,13 @@ type ListUsersRow struct {
 }
 
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
-	rows, err := q.db.Query(ctx, listUsers, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listUsers,
+		arg.RoleFilter,
+		arg.OnlyActive,
+		arg.Search,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

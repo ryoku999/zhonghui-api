@@ -44,9 +44,9 @@ func publicUser(u db.User) userResponse {
 
 type authenticatedUserKey struct{}
 
-func Register(app *fiber.App, pool *pgxpool.Pool, config Config, origins []string) {
+func Register(app *fiber.App, pool *pgxpool.Pool, config Config, origins []string) fiber.Handler {
 	s := &service{config: config, pool: pool, db: db.New(pool), dummy: hashPassword(uuid.NewString())}
-	auth := app.Group(cookiePath, requestContext)
+	auth := app.Group(cookiePath, RequestContext)
 	protected := jwtware.New(jwtware.Config{
 		SigningKey:    jwtware.SigningKey{Key: config.accessKey, JWTAlg: "HS256"},
 		Claims:        claims{},
@@ -72,13 +72,14 @@ func Register(app *fiber.App, pool *pgxpool.Pool, config Config, origins []strin
 	auth.Get("/me", protected, func(c fiber.Ctx) error {
 		return c.JSON(publicUser(fiber.Locals[db.User](c, authenticatedUserKey{})))
 	})
-	users := app.Group("/api/v1/users", requestContext, protected, requireAdmin)
+	users := app.Group("/api/v1/users", RequestContext, protected, RequireAdmin)
 	users.Get("/", s.listUsers)
 	users.Post("/", s.createUser)
 	users.Patch("/:id", s.updateUser)
+	return protected
 }
 
-func requestContext(c fiber.Ctx) error {
+func RequestContext(c fiber.Ctx) error {
 	c.Set(fiber.HeaderCacheControl, "no-store")
 	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
 	defer cancel()
@@ -107,8 +108,12 @@ func (s *service) requireSession(c fiber.Ctx) error {
 	return c.Next()
 }
 
-func requireAdmin(c fiber.Ctx) error {
-	if fiber.Locals[db.User](c, authenticatedUserKey{}).Role != "ADMIN" {
+func CurrentUser(c fiber.Ctx) db.User {
+	return fiber.Locals[db.User](c, authenticatedUserKey{})
+}
+
+func RequireAdmin(c fiber.Ctx) error {
+	if CurrentUser(c).Role != "ADMIN" {
 		return fiber.ErrForbidden
 	}
 	return c.Next()
@@ -239,7 +244,11 @@ func (s *service) logout(c fiber.Ctx) error {
 }
 
 func (s *service) tokens(u db.User, sessionID pgtype.UUID, now, expiry time.Time) (string, string, error) {
-	access, err := s.config.sign("access", u.Role, u.ID, sessionID, now, min(now.Add(accessLifetime), expiry))
+	accessExpiry := now.Add(accessLifetime)
+	if expiry.Before(accessExpiry) {
+		accessExpiry = expiry
+	}
+	access, err := s.config.sign("access", u.Role, u.ID, sessionID, now, accessExpiry)
 	if err != nil {
 		return "", "", err
 	}

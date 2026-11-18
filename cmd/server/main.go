@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"log/slog"
@@ -18,7 +17,11 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"zhonghui-api/internal/config"
 	"zhonghui-api/internal/modules/auth"
+	"zhonghui-api/internal/modules/catalog"
+	"zhonghui-api/internal/modules/loads"
+	"zhonghui-api/internal/modules/lookups"
 )
 
 func main() {
@@ -30,38 +33,20 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return errors.New("DATABASE_URL is required")
+	if err := config.LoadEnv(); err != nil {
+		return err
 	}
-	config, err := pgxpool.ParseConfig(databaseURL)
+	poolConfig, err := pgxpool.ParseConfig(os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return errors.New("invalid DATABASE_URL")
 	}
-	config.ConnConfig.ConnectTimeout = 3 * time.Second
-	config.ConnConfig.RuntimeParams["timezone"] = "UTC"
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	poolConfig.ConnConfig.ConnectTimeout = 3 * time.Second
+	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return errors.New("could not initialize PostgreSQL pool")
 	}
 	defer pool.Close()
-
-	if len(os.Args) > 1 {
-		if len(os.Args) != 4 || os.Args[1] != "bootstrap-admin" {
-			return errors.New("usage: bootstrap-admin <username> <display-name>")
-		}
-		password := bufio.NewScanner(os.Stdin)
-		if !password.Scan() {
-			return errors.New("administrator password is required on stdin")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := auth.BootstrapAdmin(ctx, pool, os.Args[2], os.Args[3], password.Text()); err != nil {
-			return err
-		}
-		logger.Info("first administrator created")
-		return nil
-	}
 
 	authConfig, err := auth.ConfigFromEnv()
 	if err != nil {
@@ -79,16 +64,19 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	app := newApp(pool, logger, authConfig)
+	app, err := newApp(pool, logger, authConfig)
+	if err != nil {
+		return err
+	}
 	logger.Info("starting HTTP server", "address", listener.Addr(), "environment", os.Getenv("APP_ENV"))
 	return app.Listener(listener, fiber.ListenConfig{DisableStartupMessage: true, GracefulContext: ctx})
 }
 
-func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fiber.App {
+func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		BodyLimit:    1024 * 1024,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		WriteTimeout: 40 * time.Second,
 		IdleTimeout:  30 * time.Second,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			status := fiber.StatusInternalServerError
@@ -106,13 +94,20 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 			case fiber.StatusForbidden:
 				code, message = "FORBIDDEN", "No tienes permiso para realizar esta acción."
 			case fiber.StatusConflict:
-				code, message = "CONFLICT", "El usuario ya existe o el cambio dejaría la aplicación sin un administrador activo."
+				code, message = "CONFLICT", "El registro ya existe o su estado actual impide el cambio."
+			case fiber.StatusUnprocessableEntity:
+				code, message = "EXPORT_LIMIT", "La exportación supera los 5 000 registros. Acota los filtros."
 			case fiber.StatusTooManyRequests:
 				code, message = "RATE_LIMITED", "Demasiados intentos. Intenta nuevamente en un minuto."
 			case fiber.StatusNotFound:
 				code = "NOT_FOUND"
 			case fiber.StatusServiceUnavailable:
 				code, message = "DATABASE_UNAVAILABLE", "La base de datos no está disponible."
+				if fiberError != fiber.ErrServiceUnavailable {
+					code, message = "LOOKUP_UNAVAILABLE", fiberError.Message
+				}
+			case fiber.StatusBadGateway:
+				code, message = "PROVIDER_ERROR", "No se pudo obtener una respuesta válida del proveedor."
 			case fiber.StatusInternalServerError:
 				code = "INTERNAL_ERROR"
 			}
@@ -143,9 +138,20 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 		}
 	}
 	if len(origins) > 0 {
-		app.Use(cors.New(cors.Config{AllowOrigins: origins, AllowCredentials: true}))
+		app.Use(cors.New(cors.Config{
+			AllowOrigins: origins, AllowCredentials: true,
+			AllowHeaders: []string{fiber.HeaderContentType, fiber.HeaderAuthorization, "Idempotency-Key"},
+		}))
 	}
-	auth.Register(app, pool, authConfig, origins)
+	protected := auth.Register(app, pool, authConfig, origins)
+	catalog.Register(app, pool, protected)
+	external, err := lookups.Register(app, pool, protected, logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := loads.Register(app, pool, protected, external); err != nil {
+		return nil, err
+	}
 
 	health := app.Group("/api/v1/health")
 	health.Get("/live", func(c fiber.Ctx) error {
@@ -161,5 +167,5 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 		c.Set(fiber.HeaderCacheControl, "no-store")
 		return c.JSON(fiber.Map{"status": "ready"})
 	})
-	return app
+	return app, nil
 }

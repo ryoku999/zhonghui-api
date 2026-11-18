@@ -5,7 +5,13 @@ RETURNING *;
 
 -- name: ListUsers :many
 SELECT id, username, display_name, role, is_active
-FROM users ORDER BY username LIMIT $1 OFFSET $2;
+FROM users
+WHERE (sqlc.arg(role_filter)::text = '' OR role = sqlc.arg(role_filter)::text)
+  AND (NOT sqlc.arg(only_active)::boolean OR is_active)
+  AND (strpos(username, lower(sqlc.arg(search)::text)) > 0
+       OR strpos(lower(display_name), lower(sqlc.arg(search)::text)) > 0)
+ORDER BY username
+LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
 
 -- name: LockUserManagement :exec
 LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE;

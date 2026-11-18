@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"regexp"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"zhonghui-api/internal/database/db"
 )
@@ -40,38 +38,19 @@ func (input newUser) params() (db.CreateUserParams, error) {
 	}, nil
 }
 
-func BootstrapAdmin(ctx context.Context, pool *pgxpool.Pool, username, displayName, password string) error {
-	params, err := (newUser{username, displayName, password, "ADMIN"}).params()
-	if err != nil {
-		return err
-	}
-	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		if err := q.LockUserManagement(ctx); err != nil {
-			return err
-		}
-		adminCount, err := q.CountActiveAdmins(ctx)
-		if err != nil {
-			return err
-		}
-		if adminCount > 0 {
-			return errors.New("an active administrator already exists")
-		}
-		u, err := q.CreateUser(ctx, params)
-		if err != nil {
-			return err
-		}
-		return q.AuditUserChange(ctx, db.AuditUserChangeParams{EntityID: u.ID, Action: "BOOTSTRAP_ADMIN"})
-	})
-}
-
 func (s *service) listUsers(c fiber.Ctx) error {
 	limit, limitErr := strconv.ParseInt(c.Query("limit", "50"), 10, 32)
 	offset, offsetErr := strconv.ParseInt(c.Query("offset", "0"), 10, 32)
-	if limitErr != nil || offsetErr != nil || limit < 1 || limit > 100 || offset < 0 {
+	active, activeErr := strconv.ParseBool(c.Query("onlyActive", "false"))
+	role := c.Query("role")
+	search := strings.TrimSpace(c.Query("q"))
+	if limitErr != nil || offsetErr != nil || activeErr != nil || limit < 1 || limit > 100 ||
+		offset < 0 || len(search) > 200 || (role != "" && !validRole(role)) {
 		return fiber.ErrBadRequest
 	}
-	rows, err := s.db.ListUsers(c.Context(), db.ListUsersParams{Limit: int32(limit), Offset: int32(offset)})
+	rows, err := s.db.ListUsers(c.Context(), db.ListUsersParams{
+		PageLimit: int32(limit), PageOffset: int32(offset), RoleFilter: role, OnlyActive: active, Search: search,
+	})
 	if err != nil {
 		return err
 	}
