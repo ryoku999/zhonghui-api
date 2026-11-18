@@ -33,8 +33,12 @@ func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler) error
 	s := service{pool: pool, db: db.New(pool), lima: lima}
 	routes := app.Group("/api/v1/loads", auth.RequestContext, protected)
 	routes.Post("/", s.create)
+	routes.Get("/", s.list)
 	routes.Get("/:id", s.detail)
 	routes.Patch("/:id", s.update)
+	app.Get("/api/v1/dashboard", auth.RequestContext, protected, s.dashboard)
+	app.Get("/api/v1/audit", auth.RequestContext, protected, auth.RequireAdmin, s.auditEntries)
+	app.Get("/api/v1/reports/loads.xlsx", auth.RequestContext, protected, s.export)
 	return nil
 }
 

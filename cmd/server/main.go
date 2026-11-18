@@ -94,6 +94,8 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 				code, message = "FORBIDDEN", "No tienes permiso para realizar esta acción."
 			case fiber.StatusConflict:
 				code, message = "CONFLICT", "El registro ya existe o su estado actual impide el cambio."
+			case fiber.StatusUnprocessableEntity:
+				code, message = "EXPORT_LIMIT", "La exportación supera los 5 000 registros. Acota los filtros."
 			case fiber.StatusTooManyRequests:
 				code, message = "RATE_LIMITED", "Demasiados intentos. Intenta nuevamente en un minuto."
 			case fiber.StatusNotFound:
