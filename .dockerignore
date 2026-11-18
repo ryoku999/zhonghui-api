@@ -1,0 +1,12 @@
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+**/.env
+**/.env.*
+**/.git
+**/*.exe
+**/*_test.go

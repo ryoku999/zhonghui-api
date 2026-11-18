@@ -55,6 +55,9 @@ func run(logger *slog.Logger) error {
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8080"
+		if port := os.Getenv("PORT"); port != "" {
+			addr = net.JoinHostPort("0.0.0.0", port)
+		}
 	}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
