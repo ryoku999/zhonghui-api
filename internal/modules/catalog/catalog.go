@@ -102,7 +102,9 @@ func (s catalog) licenses(c fiber.Ctx) error {
 	data := make([]fiber.Map, 0, len(rows))
 	for _, row := range rows {
 		data = append(data, fiber.Map{"id": row.ID, "driverId": row.DriverID, "licenseNumber": row.LicenseNumber,
-			"licenseClass": row.LicenseClass, "category": row.Category, "expiresOn": row.ExpiresOn, "issuingCountry": row.IssuingCountry})
+			"licenseClass": row.LicenseClass, "category": row.Category, "expiresOn": row.ExpiresOn, "issuingCountry": row.IssuingCountry,
+			"licenseStatus": row.LicenseStatus, "issuedOn": row.IssuedOn,
+			"driverDocument": row.DriverDocument, "driverDocumentType": row.DriverDocumentType})
 	}
 	return c.JSON(data)
 }
@@ -133,7 +135,8 @@ func (s catalog) vehicles(c fiber.Ctx) error {
 	}
 	data := make([]fiber.Map, 0, len(rows))
 	for _, row := range rows {
-		data = append(data, fiber.Map{"id": row.ID, "plate": row.Plate, "vehicleType": row.VehicleType, "make": row.Make, "model": row.Model})
+		data = append(data, fiber.Map{"id": row.ID, "plate": row.Plate, "vehicleType": row.VehicleType, "make": row.Make,
+			"model": row.Model, "modelYear": row.ModelYear, "color": row.Color, "registrationStatus": row.RegistrationStatus})
 	}
 	return c.JSON(data)
 }

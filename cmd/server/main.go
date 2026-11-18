@@ -21,6 +21,7 @@ import (
 	"zhonghui-api/internal/modules/auth"
 	"zhonghui-api/internal/modules/catalog"
 	"zhonghui-api/internal/modules/loads"
+	"zhonghui-api/internal/modules/lookups"
 )
 
 func main() {
@@ -75,7 +76,7 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 	app := fiber.New(fiber.Config{
 		BodyLimit:    1024 * 1024,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		WriteTimeout: 40 * time.Second,
 		IdleTimeout:  30 * time.Second,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			status := fiber.StatusInternalServerError
@@ -102,6 +103,11 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 				code = "NOT_FOUND"
 			case fiber.StatusServiceUnavailable:
 				code, message = "DATABASE_UNAVAILABLE", "La base de datos no está disponible."
+				if fiberError != fiber.ErrServiceUnavailable {
+					code, message = "LOOKUP_UNAVAILABLE", fiberError.Message
+				}
+			case fiber.StatusBadGateway:
+				code, message = "PROVIDER_ERROR", "No se pudo obtener una respuesta válida del proveedor."
 			case fiber.StatusInternalServerError:
 				code = "INTERNAL_ERROR"
 			}
@@ -139,7 +145,11 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 	}
 	protected := auth.Register(app, pool, authConfig, origins)
 	catalog.Register(app, pool, protected)
-	if err := loads.Register(app, pool, protected); err != nil {
+	external, err := lookups.Register(app, pool, protected, logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := loads.Register(app, pool, protected, external); err != nil {
 		return nil, err
 	}
 

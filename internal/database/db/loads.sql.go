@@ -302,15 +302,16 @@ func (q *Queries) UpdateLoadRecord(ctx context.Context, arg UpdateLoadRecordPara
 }
 
 const writeLoadProvenance = `-- name: WriteLoadProvenance :exec
-INSERT INTO field_provenance (load_record_id, version, field_name, source)
-VALUES ($1, $2, $3, $4)
+INSERT INTO field_provenance (load_record_id, version, field_name, source, verification_status)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type WriteLoadProvenanceParams struct {
-	LoadRecordID pgtype.UUID
-	Version      int32
-	FieldName    string
-	Source       string
+	LoadRecordID       pgtype.UUID
+	Version            int32
+	FieldName          string
+	Source             string
+	VerificationStatus string
 }
 
 func (q *Queries) WriteLoadProvenance(ctx context.Context, arg WriteLoadProvenanceParams) error {
@@ -319,6 +320,7 @@ func (q *Queries) WriteLoadProvenance(ctx context.Context, arg WriteLoadProvenan
 		arg.Version,
 		arg.FieldName,
 		arg.Source,
+		arg.VerificationStatus,
 	)
 	return err
 }

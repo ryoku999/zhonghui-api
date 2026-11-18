@@ -17,20 +17,22 @@ import (
 
 	"zhonghui-api/internal/database/db"
 	"zhonghui-api/internal/modules/auth"
+	"zhonghui-api/internal/modules/lookups"
 )
 
 type service struct {
-	pool *pgxpool.Pool
-	db   *db.Queries
-	lima *time.Location
+	pool    *pgxpool.Pool
+	db      *db.Queries
+	lima    *time.Location
+	lookups *lookups.Service
 }
 
-func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler) error {
+func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler, external *lookups.Service) error {
 	lima, err := time.LoadLocation("America/Lima")
 	if err != nil {
 		return err
 	}
-	s := service{pool: pool, db: db.New(pool), lima: lima}
+	s := service{pool: pool, db: db.New(pool), lima: lima, lookups: external}
 	routes := app.Group("/api/v1/loads", auth.RequestContext, protected)
 	routes.Post("/", s.create)
 	routes.Get("/", s.list)
@@ -65,6 +67,18 @@ func (s service) create(c fiber.Ctx) error {
 	}
 	digest := sha256.Sum256(encoded)
 	ctx := c.Context()
+	dni := ""
+	if input.DocumentType == "DNI" {
+		dni = input.DocumentNumber
+	}
+	external := make(map[string]bool, len(input.ExternalFields))
+	externalValues := map[string]string{
+		"ruc": input.RUC, "legalName": input.LegalName, "firstNames": input.FirstNames, "lastNames": input.LastNames,
+		"licenseNumber": input.LicenseNumber, "tractorPlate": input.TractorPlate, "trailerPlate": input.TrailerPlate,
+	}
+	for _, field := range input.ExternalFields {
+		external[field] = s.lookups.MatchesCached(input.RUC, dni, field, externalValues[field])
+	}
 	var result db.GetLoadResultRow
 	replayed := false
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -97,6 +111,7 @@ func (s service) create(c fiber.Ctx) error {
 		}
 
 		data := snapshot{createInput: input, LocationName: point.Name}
+		data.ExternalFields = nil
 		record := db.CreateLoadRecordParams{
 			LoadingLocationID: locationID, CreatedBy: actor.ID,
 			UnitDescription: optionalText(input.UnitDescription), Notes: optionalText(input.Notes),
@@ -129,11 +144,15 @@ func (s service) create(c fiber.Ctx) error {
 			"unitDescription", "notes",
 		} {
 			source := history[field]
+			verification := "UNVERIFIED"
 			if source == "" {
 				source = "MANUAL"
 			}
+			if external[field] {
+				source, verification = "EXTERNAL_API", "VERIFIED"
+			}
 			if err := q.WriteLoadProvenance(ctx, db.WriteLoadProvenanceParams{
-				LoadRecordID: id, Version: 1, FieldName: field, Source: source,
+				LoadRecordID: id, Version: 1, FieldName: field, Source: source, VerificationStatus: verification,
 			}); err != nil {
 				return err
 			}
@@ -155,6 +174,7 @@ func (s service) create(c fiber.Ctx) error {
 	if !replayed {
 		c.Status(fiber.StatusCreated)
 	}
+	s.lookups.EnrichFromCache(ctx, input.RUC, dni, input.TractorPlate, input.TrailerPlate)
 	return respond(c, result)
 }
 

@@ -55,8 +55,8 @@ RETURNING version;
 INSERT INTO load_record_snapshots (load_record_id, version, fields) VALUES ($1, $2, $3);
 
 -- name: WriteLoadProvenance :exec
-INSERT INTO field_provenance (load_record_id, version, field_name, source)
-VALUES ($1, $2, $3, $4);
+INSERT INTO field_provenance (load_record_id, version, field_name, source, verification_status)
+VALUES ($1, $2, $3, $4, $5);
 
 -- name: CopyLoadProvenance :exec
 INSERT INTO field_provenance (load_record_id, version, field_name, source, verification_status)

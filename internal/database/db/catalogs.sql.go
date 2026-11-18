@@ -106,7 +106,8 @@ func (q *Queries) SearchDrivers(ctx context.Context, arg SearchDriversParams) ([
 }
 
 const searchLicenses = `-- name: SearchLicenses :many
-SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country
+SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country,
+       l.license_status, l.issued_on, d.document_number AS driver_document, d.document_type AS driver_document_type
 FROM driver_licenses l
 JOIN drivers d ON d.id = l.driver_id
 WHERE d.is_active
@@ -124,13 +125,17 @@ type SearchLicensesParams struct {
 }
 
 type SearchLicensesRow struct {
-	ID             pgtype.UUID
-	DriverID       pgtype.UUID
-	LicenseNumber  string
-	LicenseClass   pgtype.Text
-	Category       pgtype.Text
-	ExpiresOn      pgtype.Date
-	IssuingCountry pgtype.Text
+	ID                 pgtype.UUID
+	DriverID           pgtype.UUID
+	LicenseNumber      string
+	LicenseClass       pgtype.Text
+	Category           pgtype.Text
+	ExpiresOn          pgtype.Date
+	IssuingCountry     pgtype.Text
+	LicenseStatus      pgtype.Text
+	IssuedOn           pgtype.Date
+	DriverDocument     string
+	DriverDocumentType string
 }
 
 func (q *Queries) SearchLicenses(ctx context.Context, arg SearchLicensesParams) ([]SearchLicensesRow, error) {
@@ -155,6 +160,10 @@ func (q *Queries) SearchLicenses(ctx context.Context, arg SearchLicensesParams) 
 			&i.Category,
 			&i.ExpiresOn,
 			&i.IssuingCountry,
+			&i.LicenseStatus,
+			&i.IssuedOn,
+			&i.DriverDocument,
+			&i.DriverDocumentType,
 		); err != nil {
 			return nil, err
 		}
@@ -167,7 +176,7 @@ func (q *Queries) SearchLicenses(ctx context.Context, arg SearchLicensesParams) 
 }
 
 const searchVehicles = `-- name: SearchVehicles :many
-SELECT id, plate, vehicle_type, make, model
+SELECT id, plate, vehicle_type, make, model, coalesce(model_year::text, '') AS model_year, color, registration_status
 FROM vehicles
 WHERE is_active
   AND (cardinality($1::text[]) = 0 OR vehicle_type = ANY($1::text[]))
@@ -184,11 +193,14 @@ type SearchVehiclesParams struct {
 }
 
 type SearchVehiclesRow struct {
-	ID          pgtype.UUID
-	Plate       string
-	VehicleType string
-	Make        pgtype.Text
-	Model       pgtype.Text
+	ID                 pgtype.UUID
+	Plate              string
+	VehicleType        string
+	Make               pgtype.Text
+	Model              pgtype.Text
+	ModelYear          interface{}
+	Color              pgtype.Text
+	RegistrationStatus pgtype.Text
 }
 
 func (q *Queries) SearchVehicles(ctx context.Context, arg SearchVehiclesParams) ([]SearchVehiclesRow, error) {
@@ -211,6 +223,9 @@ func (q *Queries) SearchVehicles(ctx context.Context, arg SearchVehiclesParams) 
 			&i.VehicleType,
 			&i.Make,
 			&i.Model,
+			&i.ModelYear,
+			&i.Color,
+			&i.RegistrationStatus,
 		); err != nil {
 			return nil, err
 		}

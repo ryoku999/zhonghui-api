@@ -59,6 +59,8 @@ type DriverLicense struct {
 	IssuingCountry pgtype.Text
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
+	LicenseStatus  pgtype.Text
+	IssuedOn       pgtype.Date
 }
 
 type ExternalApiQuery struct {
@@ -150,12 +152,15 @@ type UserSession struct {
 }
 
 type Vehicle struct {
-	ID          pgtype.UUID
-	Plate       string
-	VehicleType string
-	Make        pgtype.Text
-	Model       pgtype.Text
-	IsActive    bool
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	ID                 pgtype.UUID
+	Plate              string
+	VehicleType        string
+	Make               pgtype.Text
+	Model              pgtype.Text
+	IsActive           bool
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	ModelYear          pgtype.Int2
+	Color              pgtype.Text
+	RegistrationStatus pgtype.Text
 }

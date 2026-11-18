@@ -2,6 +2,7 @@ package loads
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -17,20 +18,21 @@ var (
 )
 
 type createInput struct {
-	LocationID      string `json:"locationId"`
-	RUC             string `json:"ruc"`
-	LegalName       string `json:"legalName"`
-	DocumentType    string `json:"documentType"`
-	DocumentNumber  string `json:"documentNumber"`
-	FirstNames      string `json:"firstNames"`
-	LastNames       string `json:"lastNames"`
-	LicenseNumber   string `json:"licenseNumber"`
-	LicenseID       string `json:"licenseId,omitempty"`
-	Phone           string `json:"phone"`
-	TractorPlate    string `json:"tractorPlate"`
-	TrailerPlate    string `json:"trailerPlate"`
-	UnitDescription string `json:"unitDescription"`
-	Notes           string `json:"notes"`
+	LocationID      string   `json:"locationId"`
+	RUC             string   `json:"ruc"`
+	LegalName       string   `json:"legalName"`
+	DocumentType    string   `json:"documentType"`
+	DocumentNumber  string   `json:"documentNumber"`
+	FirstNames      string   `json:"firstNames"`
+	LastNames       string   `json:"lastNames"`
+	LicenseNumber   string   `json:"licenseNumber"`
+	LicenseID       string   `json:"licenseId,omitempty"`
+	Phone           string   `json:"phone"`
+	TractorPlate    string   `json:"tractorPlate"`
+	TrailerPlate    string   `json:"trailerPlate"`
+	UnitDescription string   `json:"unitDescription"`
+	Notes           string   `json:"notes"`
+	ExternalFields  []string `json:"externalFields,omitempty"`
 }
 
 type snapshot struct {
@@ -60,6 +62,15 @@ func (in *createInput) normalize() (pgtype.UUID, bool) {
 	in.TrailerPlate = plate.Replace(strings.ToUpper(strings.TrimSpace(in.TrailerPlate)))
 	in.UnitDescription = strings.TrimSpace(in.UnitDescription)
 	in.Notes = strings.TrimSpace(in.Notes)
+	slices.Sort(in.ExternalFields)
+	in.ExternalFields = slices.Compact(in.ExternalFields)
+	for _, field := range in.ExternalFields {
+		switch field {
+		case "ruc", "legalName", "firstNames", "lastNames", "licenseNumber", "tractorPlate", "trailerPlate":
+		default:
+			valid = false
+		}
+	}
 	valid = valid && rucPattern.MatchString(in.RUC) &&
 		in.LegalName != "" && within(in.LegalName, 200) &&
 		typePattern.MatchString(in.DocumentType) && documentPattern.MatchString(in.DocumentNumber) &&

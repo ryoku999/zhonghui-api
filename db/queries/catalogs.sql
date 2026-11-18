@@ -17,7 +17,8 @@ ORDER BY last_names, first_names, id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
 
 -- name: SearchLicenses :many
-SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country
+SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country,
+       l.license_status, l.issued_on, d.document_number AS driver_document, d.document_type AS driver_document_type
 FROM driver_licenses l
 JOIN drivers d ON d.id = l.driver_id
 WHERE d.is_active
@@ -27,7 +28,7 @@ ORDER BY l.license_number, l.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
 
 -- name: SearchVehicles :many
-SELECT id, plate, vehicle_type, make, model
+SELECT id, plate, vehicle_type, make, model, coalesce(model_year::text, '') AS model_year, color, registration_status
 FROM vehicles
 WHERE is_active
   AND (cardinality(sqlc.arg(vehicle_types)::text[]) = 0 OR vehicle_type = ANY(sqlc.arg(vehicle_types)::text[]))
