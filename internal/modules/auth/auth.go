@@ -80,8 +80,18 @@ func Register(app *fiber.App, pool *pgxpool.Pool, config Config, origins []strin
 }
 
 func RequestContext(c fiber.Ctx) error {
+	return withRequestTimeout(c, 5*time.Second)
+}
+
+func RequestContextWithTimeout(timeout time.Duration) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		return withRequestTimeout(c, timeout)
+	}
+}
+
+func withRequestTimeout(c fiber.Ctx, timeout time.Duration) error {
 	c.Set(fiber.HeaderCacheControl, "no-store")
-	ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Context(), timeout)
 	defer cancel()
 	c.SetContext(ctx)
 	return c.Next()

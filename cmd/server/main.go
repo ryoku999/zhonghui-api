@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"zhonghui-api/internal/config"
@@ -23,6 +24,8 @@ import (
 	"zhonghui-api/internal/modules/loads"
 	"zhonghui-api/internal/modules/lookups"
 )
+
+type requestStartedKey struct{}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -86,6 +89,8 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 			var fiberError *fiber.Error
 			if errors.As(err, &fiberError) {
 				status = fiberError.Code
+			} else if errors.Is(err, context.DeadlineExceeded) || pgconn.Timeout(err) {
+				status = fiber.StatusGatewayTimeout
 			}
 			code := "HTTP_ERROR"
 			message := "No se pudo procesar la solicitud."
@@ -111,11 +116,22 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 				}
 			case fiber.StatusBadGateway:
 				code, message = "PROVIDER_ERROR", "No se pudo obtener una respuesta válida del proveedor."
+			case fiber.StatusGatewayTimeout:
+				code, message = "DEADLINE_EXCEEDED", "El servidor tardó demasiado en responder. Puedes reintentar."
 			case fiber.StatusInternalServerError:
 				code = "INTERNAL_ERROR"
 			}
 			if status >= 500 {
-				logger.Error("request failed", "requestId", requestid.FromContext(c), "status", status, "code", code)
+				fields := []any{"requestId", requestid.FromContext(c), "status", status, "code", code,
+					"method", c.Method(), "route", c.Route().Path}
+				if started, ok := c.Locals(requestStartedKey{}).(time.Time); ok {
+					fields = append(fields, "durationMs", time.Since(started).Milliseconds())
+				}
+				var databaseError *pgconn.PgError
+				if errors.As(err, &databaseError) {
+					fields = append(fields, "sqlState", databaseError.Code, "constraint", databaseError.ConstraintName)
+				}
+				logger.Error("request failed", fields...)
 			}
 			c.Set(fiber.HeaderCacheControl, "no-store")
 			return c.Status(status).JSON(fiber.Map{
@@ -124,6 +140,7 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*f
 		},
 	})
 	app.Use(func(c fiber.Ctx) error {
+		c.Locals(requestStartedKey{}, time.Now())
 		// Keep request IDs in the logs under server control.
 		c.Request().Header.Del(fiber.HeaderXRequestID)
 		return c.Next()
