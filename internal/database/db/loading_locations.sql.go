@@ -11,28 +11,127 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const listActiveLoadingLocations = `-- name: ListActiveLoadingLocations :many
-SELECT id, name
-FROM loading_locations
-WHERE is_active
-ORDER BY name, id
+const assignLocationUser = `-- name: AssignLocationUser :execrows
+INSERT INTO user_loading_locations (loading_location_id, user_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
 `
 
-type ListActiveLoadingLocationsRow struct {
-	ID   pgtype.UUID
-	Name string
+type AssignLocationUserParams struct {
+	LoadingLocationID pgtype.UUID
+	UserID            pgtype.UUID
 }
 
-func (q *Queries) ListActiveLoadingLocations(ctx context.Context) ([]ListActiveLoadingLocationsRow, error) {
-	rows, err := q.db.Query(ctx, listActiveLoadingLocations)
+func (q *Queries) AssignLocationUser(ctx context.Context, arg AssignLocationUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, assignLocationUser, arg.LoadingLocationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const auditLocationChange = `-- name: AuditLocationChange :exec
+INSERT INTO audit_logs (actor_user_id, entity_type, entity_id, action, request_id)
+VALUES ($1, 'loading_location', $2, $3, $4)
+`
+
+type AuditLocationChangeParams struct {
+	ActorUserID pgtype.UUID
+	EntityID    pgtype.UUID
+	Action      string
+	RequestID   pgtype.Text
+}
+
+func (q *Queries) AuditLocationChange(ctx context.Context, arg AuditLocationChangeParams) error {
+	_, err := q.db.Exec(ctx, auditLocationChange,
+		arg.ActorUserID,
+		arg.EntityID,
+		arg.Action,
+		arg.RequestID,
+	)
+	return err
+}
+
+const createLoadingLocation = `-- name: CreateLoadingLocation :one
+INSERT INTO loading_locations (name) VALUES ($1)
+RETURNING id, name, is_active, created_at, updated_at
+`
+
+func (q *Queries) CreateLoadingLocation(ctx context.Context, name string) (LoadingLocation, error) {
+	row := q.db.QueryRow(ctx, createLoadingLocation, name)
+	var i LoadingLocation
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getLoadingLocation = `-- name: GetLoadingLocation :one
+SELECT id, name, is_active, created_at, updated_at FROM loading_locations WHERE id = $1
+`
+
+func (q *Queries) GetLoadingLocation(ctx context.Context, id pgtype.UUID) (LoadingLocation, error) {
+	row := q.db.QueryRow(ctx, getLoadingLocation, id)
+	var i LoadingLocation
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listLoadingLocations = `-- name: ListLoadingLocations :many
+SELECT id, name, is_active
+FROM loading_locations
+WHERE ($1::boolean OR is_active)
+  AND (NOT $2::boolean OR EXISTS (
+      SELECT 1 FROM user_loading_locations
+      WHERE loading_location_id = loading_locations.id AND user_id = $3
+  ))
+  AND strpos(lower(name), lower($4::text)) > 0
+ORDER BY name, id
+LIMIT $6::integer OFFSET $5::integer
+`
+
+type ListLoadingLocationsParams struct {
+	IsAdmin      bool
+	OnlyAssigned bool
+	UserID       pgtype.UUID
+	Search       string
+	PageOffset   int32
+	PageLimit    int32
+}
+
+type ListLoadingLocationsRow struct {
+	ID       pgtype.UUID
+	Name     string
+	IsActive bool
+}
+
+func (q *Queries) ListLoadingLocations(ctx context.Context, arg ListLoadingLocationsParams) ([]ListLoadingLocationsRow, error) {
+	rows, err := q.db.Query(ctx, listLoadingLocations,
+		arg.IsAdmin,
+		arg.OnlyAssigned,
+		arg.UserID,
+		arg.Search,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListActiveLoadingLocationsRow{}
+	items := []ListLoadingLocationsRow{}
 	for rows.Next() {
-		var i ListActiveLoadingLocationsRow
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+		var i ListLoadingLocationsRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.IsActive); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -41,4 +140,116 @@ func (q *Queries) ListActiveLoadingLocations(ctx context.Context) ([]ListActiveL
 		return nil, err
 	}
 	return items, nil
+}
+
+const listLocationUsers = `-- name: ListLocationUsers :many
+SELECT u.id, u.username, u.display_name, u.is_active, u.role
+FROM user_loading_locations a
+JOIN users u ON u.id = a.user_id
+WHERE a.loading_location_id = $1
+ORDER BY u.username, u.id
+LIMIT $3::integer OFFSET $2::integer
+`
+
+type ListLocationUsersParams struct {
+	LocationID pgtype.UUID
+	PageOffset int32
+	PageLimit  int32
+}
+
+type ListLocationUsersRow struct {
+	ID          pgtype.UUID
+	Username    string
+	DisplayName string
+	IsActive    bool
+	Role        string
+}
+
+func (q *Queries) ListLocationUsers(ctx context.Context, arg ListLocationUsersParams) ([]ListLocationUsersRow, error) {
+	rows, err := q.db.Query(ctx, listLocationUsers, arg.LocationID, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLocationUsersRow{}
+	for rows.Next() {
+		var i ListLocationUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.DisplayName,
+			&i.IsActive,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockLoadingLocation = `-- name: LockLoadingLocation :one
+SELECT id, name, is_active, created_at, updated_at FROM loading_locations WHERE id = $1 FOR SHARE
+`
+
+func (q *Queries) LockLoadingLocation(ctx context.Context, id pgtype.UUID) (LoadingLocation, error) {
+	row := q.db.QueryRow(ctx, lockLoadingLocation, id)
+	var i LoadingLocation
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const removeLocationUser = `-- name: RemoveLocationUser :execrows
+DELETE FROM user_loading_locations
+WHERE loading_location_id = $1 AND user_id = $2
+`
+
+type RemoveLocationUserParams struct {
+	LoadingLocationID pgtype.UUID
+	UserID            pgtype.UUID
+}
+
+func (q *Queries) RemoveLocationUser(ctx context.Context, arg RemoveLocationUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, removeLocationUser, arg.LoadingLocationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateLoadingLocation = `-- name: UpdateLoadingLocation :one
+UPDATE loading_locations
+SET name = coalesce($1, name),
+    is_active = coalesce($2, is_active),
+    updated_at = now()
+WHERE id = $3
+RETURNING id, name, is_active, created_at, updated_at
+`
+
+type UpdateLoadingLocationParams struct {
+	Name     pgtype.Text
+	IsActive pgtype.Bool
+	ID       pgtype.UUID
+}
+
+func (q *Queries) UpdateLoadingLocation(ctx context.Context, arg UpdateLoadingLocationParams) (LoadingLocation, error) {
+	row := q.db.QueryRow(ctx, updateLoadingLocation, arg.Name, arg.IsActive, arg.ID)
+	var i LoadingLocation
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

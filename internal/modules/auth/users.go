@@ -41,10 +41,16 @@ func (input newUser) params() (db.CreateUserParams, error) {
 func (s *service) listUsers(c fiber.Ctx) error {
 	limit, limitErr := strconv.ParseInt(c.Query("limit", "50"), 10, 32)
 	offset, offsetErr := strconv.ParseInt(c.Query("offset", "0"), 10, 32)
-	if limitErr != nil || offsetErr != nil || limit < 1 || limit > 100 || offset < 0 {
+	active, activeErr := strconv.ParseBool(c.Query("onlyActive", "false"))
+	role := c.Query("role")
+	search := strings.TrimSpace(c.Query("q"))
+	if limitErr != nil || offsetErr != nil || activeErr != nil || limit < 1 || limit > 100 ||
+		offset < 0 || len(search) > 200 || (role != "" && !validRole(role)) {
 		return fiber.ErrBadRequest
 	}
-	rows, err := s.db.ListUsers(c.Context(), db.ListUsersParams{Limit: int32(limit), Offset: int32(offset)})
+	rows, err := s.db.ListUsers(c.Context(), db.ListUsersParams{
+		PageLimit: int32(limit), PageOffset: int32(offset), RoleFilter: role, OnlyActive: active, Search: search,
+	})
 	if err != nil {
 		return err
 	}

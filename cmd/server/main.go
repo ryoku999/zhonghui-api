@@ -19,6 +19,7 @@ import (
 
 	"zhonghui-api/internal/config"
 	"zhonghui-api/internal/modules/auth"
+	"zhonghui-api/internal/modules/catalog"
 )
 
 func main() {
@@ -88,7 +89,7 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 			case fiber.StatusForbidden:
 				code, message = "FORBIDDEN", "No tienes permiso para realizar esta acción."
 			case fiber.StatusConflict:
-				code, message = "CONFLICT", "El usuario ya existe o el cambio dejaría la aplicación sin un administrador activo."
+				code, message = "CONFLICT", "El registro ya existe o su estado actual impide el cambio."
 			case fiber.StatusTooManyRequests:
 				code, message = "RATE_LIMITED", "Demasiados intentos. Intenta nuevamente en un minuto."
 			case fiber.StatusNotFound:
@@ -127,7 +128,8 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 	if len(origins) > 0 {
 		app.Use(cors.New(cors.Config{AllowOrigins: origins, AllowCredentials: true}))
 	}
-	auth.Register(app, pool, authConfig, origins)
+	protected := auth.Register(app, pool, authConfig, origins)
+	catalog.Register(app, pool, protected)
 
 	health := app.Group("/api/v1/health")
 	health.Get("/live", func(c fiber.Ctx) error {
