@@ -112,15 +112,21 @@ func (s catalog) vehicles(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	vehicleType := strings.ToUpper(strings.TrimSpace(c.Query("type")))
-	switch vehicleType {
-	case "", "TRACTOR", "TRAILER", "SEMITRAILER":
-	default:
-		return fiber.ErrBadRequest
+	vehicleTypes := []string{}
+	if raw := strings.TrimSpace(c.Query("type")); raw != "" {
+		for value := range strings.SplitSeq(raw, ",") {
+			vehicleType := strings.ToUpper(strings.TrimSpace(value))
+			switch vehicleType {
+			case "TRACTOR", "TRAILER", "SEMITRAILER":
+				vehicleTypes = append(vehicleTypes, vehicleType)
+			default:
+				return fiber.ErrBadRequest
+			}
+		}
 	}
 	plate := strings.NewReplacer(" ", "", "-", "").Replace(strings.ToUpper(p.search))
 	rows, err := s.db.SearchVehicles(c.Context(), db.SearchVehiclesParams{
-		Search: plate, VehicleType: vehicleType, PageLimit: p.limit, PageOffset: p.offset,
+		Search: plate, VehicleTypes: vehicleTypes, PageLimit: p.limit, PageOffset: p.offset,
 	})
 	if err != nil {
 		return err

@@ -20,6 +20,7 @@ import (
 	"zhonghui-api/internal/config"
 	"zhonghui-api/internal/modules/auth"
 	"zhonghui-api/internal/modules/catalog"
+	"zhonghui-api/internal/modules/loads"
 )
 
 func main() {
@@ -62,12 +63,15 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	app := newApp(pool, logger, authConfig)
+	app, err := newApp(pool, logger, authConfig)
+	if err != nil {
+		return err
+	}
 	logger.Info("starting HTTP server", "address", listener.Addr(), "environment", os.Getenv("APP_ENV"))
 	return app.Listener(listener, fiber.ListenConfig{DisableStartupMessage: true, GracefulContext: ctx})
 }
 
-func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fiber.App {
+func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		BodyLimit:    1024 * 1024,
 		ReadTimeout:  10 * time.Second,
@@ -126,10 +130,16 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 		}
 	}
 	if len(origins) > 0 {
-		app.Use(cors.New(cors.Config{AllowOrigins: origins, AllowCredentials: true}))
+		app.Use(cors.New(cors.Config{
+			AllowOrigins: origins, AllowCredentials: true,
+			AllowHeaders: []string{fiber.HeaderContentType, fiber.HeaderAuthorization, "Idempotency-Key"},
+		}))
 	}
 	protected := auth.Register(app, pool, authConfig, origins)
 	catalog.Register(app, pool, protected)
+	if err := loads.Register(app, pool, protected); err != nil {
+		return nil, err
+	}
 
 	health := app.Group("/api/v1/health")
 	health.Get("/live", func(c fiber.Ctx) error {
@@ -145,5 +155,5 @@ func newApp(pool *pgxpool.Pool, logger *slog.Logger, authConfig auth.Config) *fi
 		c.Set(fiber.HeaderCacheControl, "no-store")
 		return c.JSON(fiber.Map{"status": "ready"})
 	})
-	return app
+	return app, nil
 }

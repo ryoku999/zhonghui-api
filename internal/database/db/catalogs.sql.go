@@ -170,17 +170,17 @@ const searchVehicles = `-- name: SearchVehicles :many
 SELECT id, plate, vehicle_type, make, model
 FROM vehicles
 WHERE is_active
-  AND ($1::text = '' OR vehicle_type = $1::text)
+  AND (cardinality($1::text[]) = 0 OR vehicle_type = ANY($1::text[]))
   AND strpos(plate, $2::text) > 0
 ORDER BY plate, id
 LIMIT $4::integer OFFSET $3::integer
 `
 
 type SearchVehiclesParams struct {
-	VehicleType string
-	Search      string
-	PageOffset  int32
-	PageLimit   int32
+	VehicleTypes []string
+	Search       string
+	PageOffset   int32
+	PageLimit    int32
 }
 
 type SearchVehiclesRow struct {
@@ -193,7 +193,7 @@ type SearchVehiclesRow struct {
 
 func (q *Queries) SearchVehicles(ctx context.Context, arg SearchVehiclesParams) ([]SearchVehiclesRow, error) {
 	rows, err := q.db.Query(ctx, searchVehicles,
-		arg.VehicleType,
+		arg.VehicleTypes,
 		arg.Search,
 		arg.PageOffset,
 		arg.PageLimit,

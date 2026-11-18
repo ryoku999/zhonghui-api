@@ -30,7 +30,7 @@ LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
 SELECT id, plate, vehicle_type, make, model
 FROM vehicles
 WHERE is_active
-  AND (sqlc.arg(vehicle_type)::text = '' OR vehicle_type = sqlc.arg(vehicle_type)::text)
+  AND (cardinality(sqlc.arg(vehicle_types)::text[]) = 0 OR vehicle_type = ANY(sqlc.arg(vehicle_types)::text[]))
   AND strpos(plate, sqlc.arg(search)::text) > 0
 ORDER BY plate, id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
