@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"regexp"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"zhonghui-api/internal/database/db"
 )
@@ -38,31 +36,6 @@ func (input newUser) params() (db.CreateUserParams, error) {
 	return db.CreateUserParams{
 		Username: name, DisplayName: display, PasswordHash: hashPassword(input.Password), Role: input.Role,
 	}, nil
-}
-
-func BootstrapAdmin(ctx context.Context, pool *pgxpool.Pool, username, displayName, password string) error {
-	params, err := (newUser{username, displayName, password, "ADMIN"}).params()
-	if err != nil {
-		return err
-	}
-	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		if err := q.LockUserManagement(ctx); err != nil {
-			return err
-		}
-		adminCount, err := q.CountActiveAdmins(ctx)
-		if err != nil {
-			return err
-		}
-		if adminCount > 0 {
-			return errors.New("an active administrator already exists")
-		}
-		u, err := q.CreateUser(ctx, params)
-		if err != nil {
-			return err
-		}
-		return q.AuditUserChange(ctx, db.AuditUserChangeParams{EntityID: u.ID, Action: "BOOTSTRAP_ADMIN"})
-	})
 }
 
 func (s *service) listUsers(c fiber.Ctx) error {

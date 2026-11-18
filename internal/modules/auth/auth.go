@@ -239,7 +239,11 @@ func (s *service) logout(c fiber.Ctx) error {
 }
 
 func (s *service) tokens(u db.User, sessionID pgtype.UUID, now, expiry time.Time) (string, string, error) {
-	access, err := s.config.sign("access", u.Role, u.ID, sessionID, now, min(now.Add(accessLifetime), expiry))
+	accessExpiry := now.Add(accessLifetime)
+	if expiry.Before(accessExpiry) {
+		accessExpiry = expiry
+	}
+	access, err := s.config.sign("access", u.Role, u.ID, sessionID, now, accessExpiry)
 	if err != nil {
 		return "", "", err
 	}

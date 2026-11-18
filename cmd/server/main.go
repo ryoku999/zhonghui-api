@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"log/slog"
@@ -18,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"zhonghui-api/internal/config"
 	"zhonghui-api/internal/modules/auth"
 )
 
@@ -30,38 +30,20 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return errors.New("DATABASE_URL is required")
+	if err := config.LoadEnv(); err != nil {
+		return err
 	}
-	config, err := pgxpool.ParseConfig(databaseURL)
+	poolConfig, err := pgxpool.ParseConfig(os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return errors.New("invalid DATABASE_URL")
 	}
-	config.ConnConfig.ConnectTimeout = 3 * time.Second
-	config.ConnConfig.RuntimeParams["timezone"] = "UTC"
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	poolConfig.ConnConfig.ConnectTimeout = 3 * time.Second
+	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return errors.New("could not initialize PostgreSQL pool")
 	}
 	defer pool.Close()
-
-	if len(os.Args) > 1 {
-		if len(os.Args) != 4 || os.Args[1] != "bootstrap-admin" {
-			return errors.New("usage: bootstrap-admin <username> <display-name>")
-		}
-		password := bufio.NewScanner(os.Stdin)
-		if !password.Scan() {
-			return errors.New("administrator password is required on stdin")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := auth.BootstrapAdmin(ctx, pool, os.Args[2], os.Args[3], password.Text()); err != nil {
-			return err
-		}
-		logger.Info("first administrator created")
-		return nil
-	}
 
 	authConfig, err := auth.ConfigFromEnv()
 	if err != nil {
