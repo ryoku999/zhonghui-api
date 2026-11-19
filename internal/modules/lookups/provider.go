@@ -89,11 +89,14 @@ type Company struct {
 }
 
 type License struct {
-	Number         string `json:"licenseNumber"`
-	Category       string `json:"category,omitempty"`
-	Status         string `json:"licenseStatus,omitempty"`
-	IssuedOn       string `json:"issuedOn,omitempty"`
-	RevalidationOn string `json:"revalidationOn,omitempty"`
+	Number         string   `json:"licenseNumber"`
+	Category       string   `json:"category,omitempty"`
+	Status         string   `json:"licenseStatus,omitempty"`
+	IssuedOn       string   `json:"issuedOn,omitempty"`
+	RevalidationOn string   `json:"revalidationOn,omitempty"`
+	Restrictions   []string `json:"restrictions"`
+	IssuingCenter  string   `json:"issuingCenter,omitempty"`
+	IsElectronic   *bool    `json:"isElectronic,omitempty"`
 }
 
 type Driver struct {
@@ -102,15 +105,7 @@ type Driver struct {
 	LastNames  string    `json:"lastNames"`
 	Licenses   []License `json:"licenses"`
 	Incomplete bool      `json:"incomplete"`
-}
-
-type Vehicle struct {
-	Plate              string `json:"plate"`
-	Make               string `json:"make,omitempty"`
-	Model              string `json:"model,omitempty"`
-	ModelYear          int16  `json:"modelYear,omitempty"`
-	Color              string `json:"color,omitempty"`
-	RegistrationStatus string `json:"registrationStatus,omitempty"`
+	CheckedAt  time.Time `json:"checkedAt"`
 }
 
 func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
@@ -136,17 +131,21 @@ func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
 			DNI        string `json:"dni"`
 			Found      *bool  `json:"encontrado"`
 			Incomplete bool   `json:"incompleto"`
+			CheckedAt  string `json:"fecha_consulta"`
 			Driver     struct {
 				Names  string `json:"nombres"`
 				First  string `json:"apellido_paterno"`
 				Second string `json:"apellido_materno"`
 			} `json:"conductor"`
 			Licenses []struct {
-				Number     string `json:"numero"`
-				Category   string `json:"categoria"`
-				Status     string `json:"estado"`
-				Issued     string `json:"fecha_expedicion"`
-				Revalidate string `json:"fecha_revalidacion"`
+				Number       string   `json:"numero"`
+				Category     string   `json:"categoria"`
+				Status       string   `json:"estado"`
+				Issued       string   `json:"fecha_expedicion"`
+				Revalidate   string   `json:"fecha_revalidacion"`
+				Restrictions []string `json:"restricciones"`
+				Center       string   `json:"centro_emision"`
+				Electronic   *bool    `json:"electronica"`
 			} `json:"licencias"`
 		}
 		if err := p.post(ctx, "/mtc/licencia", map[string]string{"dni": key}, &body); err != nil {
@@ -159,11 +158,16 @@ func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
 			return entry{ttl: time.Minute}, nil
 		}
 		data := Driver{DNI: key, FirstNames: body.Driver.Names, LastNames: strings.TrimSpace(body.Driver.First + " " + body.Driver.Second),
-			Incomplete: body.Incomplete, Licenses: []License{}}
+			Incomplete: body.Incomplete, Licenses: []License{}, CheckedAt: providerCheckedAt(body.CheckedAt)}
 		for _, row := range body.Licenses {
 			number := strings.ToUpper(strings.TrimSpace(row.Number))
 			if number != "" {
-				data.Licenses = append(data.Licenses, License{number, row.Category, row.Status, isoDate(row.Issued), isoDate(row.Revalidate)})
+				data.Licenses = append(data.Licenses, License{
+					Number: number, Category: cleanText(row.Category, 80), Status: cleanText(row.Status, 80),
+					IssuedOn: isoDate(row.Issued), RevalidationOn: isoDate(row.Revalidate),
+					Restrictions: cleanRestrictions(row.Restrictions), IssuingCenter: cleanText(row.Center, 240),
+					IsElectronic: row.Electronic,
+				})
 			}
 		}
 		ttl := 10 * time.Minute
@@ -173,15 +177,29 @@ func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
 		return entry{data: data, ttl: ttl}, nil
 	default:
 		var body struct {
-			Plate string `json:"placa"`
-			Found *bool  `json:"encontrado"`
-			Car   struct {
-				Plate string          `json:"placa_vigente"`
-				Make  string          `json:"marca"`
-				Model string          `json:"modelo"`
-				Year  json.RawMessage `json:"anio_modelo"`
-				Color string          `json:"color"`
-				State string          `json:"estado"`
+			Plate           string  `json:"placa"`
+			Found           *bool   `json:"encontrado"`
+			Checked         string  `json:"fecha_consulta"`
+			TheftAlert      *string `json:"alerta_robo"`
+			RegistryEntries []struct {
+				Office     string `json:"oficina"`
+				Number     string `json:"partida"`
+				Zone       string `json:"zona_registral"`
+				OfficeCode string `json:"oficina_codigo"`
+			} `json:"partidas"`
+			Car struct {
+				Plate          string          `json:"placa_vigente"`
+				Make           string          `json:"marca"`
+				Model          string          `json:"modelo"`
+				Year           json.RawMessage `json:"anio_modelo"`
+				Color          string          `json:"color"`
+				State          string          `json:"estado"`
+				Serial         string          `json:"serie"`
+				VIN            string          `json:"vin"`
+				Engine         string          `json:"motor"`
+				PreviousPlate  string          `json:"placa_anterior"`
+				RegistryOffice string          `json:"sede"`
+				RegistryNotes  string          `json:"anotaciones"`
 			} `json:"vehiculo"`
 		}
 		if err := p.post(ctx, "/sunarp/consulta-vehicular", map[string]string{"placa": key}, &body); err != nil {
@@ -204,7 +222,29 @@ func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
 		if year < 1886 || year > 9999 {
 			year = 0
 		}
-		return entry{data: Vehicle{plate, body.Car.Make, body.Car.Model, int16(year), body.Car.Color, body.Car.State}, ttl: 24 * time.Hour}, nil
+		checked := providerCheckedAt(body.Checked)
+		car := Vehicle{
+			Plate: plate, Make: cleanText(body.Car.Make, 100), Model: cleanText(body.Car.Model, 100),
+			ModelYear: int16(year), Color: cleanText(body.Car.Color, 100), RegistrationStatus: cleanText(body.Car.State, 160),
+			SerialNumber: cleanText(body.Car.Serial, 100), VIN: cleanText(body.Car.VIN, 80), EngineNumber: cleanText(body.Car.Engine, 100),
+			PreviousPlate:  cleanText(normalizePlate(body.Car.PreviousPlate), 24),
+			RegistryOffice: cleanText(body.Car.RegistryOffice, 160), RegistryNotes: cleanText(body.Car.RegistryNotes, 400),
+			CheckedAt: &checked,
+		}
+		if body.TheftAlert != nil {
+			alert := cleanText(*body.TheftAlert, 240)
+			car.TheftAlert = &alert
+		}
+		if body.RegistryEntries != nil {
+			car.RegistryEntries = make([]RegistryEntry, 0, min(len(body.RegistryEntries), 20))
+			for _, row := range body.RegistryEntries[:min(len(body.RegistryEntries), 20)] {
+				car.RegistryEntries = append(car.RegistryEntries, RegistryEntry{
+					Office: cleanText(row.Office, 80), Number: cleanText(row.Number, 40),
+					Zone: cleanText(row.Zone, 30), OfficeCode: cleanText(row.OfficeCode, 30),
+				})
+			}
+		}
+		return entry{data: car, ttl: 24 * time.Hour}, nil
 	}
 }
 

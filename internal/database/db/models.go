@@ -61,6 +61,11 @@ type DriverLicense struct {
 	UpdatedAt      pgtype.Timestamptz
 	LicenseStatus  pgtype.Text
 	IssuedOn       pgtype.Date
+	RevalidationOn pgtype.Date
+	Restrictions   []string
+	IssuingCenter  pgtype.Text
+	IsElectronic   pgtype.Bool
+	MtcCheckedAt   pgtype.Timestamptz
 }
 
 type ExternalApiQuery struct {
@@ -163,4 +168,13 @@ type Vehicle struct {
 	ModelYear          pgtype.Int2
 	Color              pgtype.Text
 	RegistrationStatus pgtype.Text
+	SerialNumber       pgtype.Text
+	Vin                pgtype.Text
+	EngineNumber       pgtype.Text
+	PreviousPlate      pgtype.Text
+	RegistryOffice     pgtype.Text
+	RegistryNotes      pgtype.Text
+	RegistryEntries    []byte
+	TheftAlert         pgtype.Text
+	SunarpCheckedAt    pgtype.Timestamptz
 }

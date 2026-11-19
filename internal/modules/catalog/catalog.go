@@ -10,6 +10,7 @@ import (
 
 	"zhonghui-api/internal/database/db"
 	"zhonghui-api/internal/modules/auth"
+	"zhonghui-api/internal/modules/lookups"
 )
 
 type catalog struct {
@@ -29,7 +30,9 @@ func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler) {
 	app.Get("/api/v1/companies", auth.RequestContext, protected, s.companies)
 	app.Get("/api/v1/drivers", auth.RequestContext, protected, s.drivers)
 	app.Get("/api/v1/licenses", auth.RequestContext, protected, s.licenses)
+	app.Get("/api/v1/licenses/:id", auth.RequestContext, protected, s.licenseDetails)
 	app.Get("/api/v1/vehicles", auth.RequestContext, protected, s.vehicles)
+	app.Get("/api/v1/vehicles/:id", auth.RequestContext, protected, s.vehicleDetails)
 }
 
 type page struct {
@@ -103,10 +106,22 @@ func (s catalog) licenses(c fiber.Ctx) error {
 	for _, row := range rows {
 		data = append(data, fiber.Map{"id": row.ID, "driverId": row.DriverID, "licenseNumber": row.LicenseNumber,
 			"licenseClass": row.LicenseClass, "category": row.Category, "expiresOn": row.ExpiresOn, "issuingCountry": row.IssuingCountry,
-			"licenseStatus": row.LicenseStatus, "issuedOn": row.IssuedOn,
+			"licenseStatus": row.LicenseStatus, "issuedOn": row.IssuedOn, "revalidationOn": row.RevalidationOn,
 			"driverDocument": row.DriverDocument, "driverDocumentType": row.DriverDocumentType})
 	}
 	return c.JSON(data)
+}
+
+func (s catalog) licenseDetails(c fiber.Ctx) error {
+	id, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	row, err := s.db.ReadLicenseDetails(c.Context(), id)
+	if err != nil {
+		return notFound(err)
+	}
+	return c.JSON(lookups.DetailOf(row))
 }
 
 func (s catalog) vehicles(c fiber.Ctx) error {
@@ -147,4 +162,20 @@ func conflictOnDuplicate(err error) error {
 		return fiber.ErrConflict
 	}
 	return err
+}
+
+func (s catalog) vehicleDetails(c fiber.Ctx) error {
+	id, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	row, err := s.db.ReadVehicleDetails(c.Context(), id)
+	if err != nil {
+		return notFound(err)
+	}
+	details, err := lookups.DetailOfVehicle(row)
+	if err != nil {
+		return err
+	}
+	return c.JSON(details)
 }

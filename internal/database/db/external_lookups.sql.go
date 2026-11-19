@@ -46,20 +46,33 @@ UPDATE driver_licenses l SET
     category = coalesce($1, l.category),
     license_status = coalesce($2, l.license_status),
     issued_on = coalesce($3, l.issued_on),
+    revalidation_on = coalesce($4, l.revalidation_on),
+    restrictions = coalesce($5::text[], l.restrictions),
+    issuing_center = coalesce($6, l.issuing_center),
+    is_electronic = coalesce($7, l.is_electronic),
+    mtc_checked_at = $8,
     updated_at = now()
 FROM drivers d
 WHERE d.id = l.driver_id AND d.document_type = 'DNI'
-  AND d.document_number = $4 AND d.is_active
-  AND l.license_number = $5
+  AND d.document_number = $9 AND d.is_active
+  AND l.license_number = $10
+  AND ($11::uuid IS NULL OR l.id = $11::uuid)
+  AND (l.mtc_checked_at IS NULL OR l.mtc_checked_at < $8)
   AND (l.issuing_country IS NULL OR l.issuing_country = 'PE')
 `
 
 type EnrichLicenseParams struct {
-	Category      pgtype.Text
-	LicenseStatus pgtype.Text
-	IssuedOn      pgtype.Date
-	Dni           string
-	LicenseNumber string
+	Category       pgtype.Text
+	LicenseStatus  pgtype.Text
+	IssuedOn       pgtype.Date
+	RevalidationOn pgtype.Date
+	Restrictions   []string
+	IssuingCenter  pgtype.Text
+	IsElectronic   pgtype.Bool
+	CheckedAt      pgtype.Timestamptz
+	Dni            string
+	LicenseNumber  string
+	LicenseID      pgtype.UUID
 }
 
 func (q *Queries) EnrichLicense(ctx context.Context, arg EnrichLicenseParams) error {
@@ -67,8 +80,14 @@ func (q *Queries) EnrichLicense(ctx context.Context, arg EnrichLicenseParams) er
 		arg.Category,
 		arg.LicenseStatus,
 		arg.IssuedOn,
+		arg.RevalidationOn,
+		arg.Restrictions,
+		arg.IssuingCenter,
+		arg.IsElectronic,
+		arg.CheckedAt,
 		arg.Dni,
 		arg.LicenseNumber,
+		arg.LicenseID,
 	)
 	return err
 }
@@ -80,8 +99,18 @@ UPDATE vehicles SET
     model_year = coalesce($3, model_year),
     color = coalesce($4, color),
     registration_status = coalesce($5, registration_status),
+    serial_number = coalesce($6, serial_number),
+    vin = coalesce($7, vin),
+    engine_number = coalesce($8, engine_number),
+    previous_plate = coalesce($9, previous_plate),
+    registry_office = coalesce($10, registry_office),
+    registry_notes = coalesce($11, registry_notes),
+    registry_entries = coalesce($12::jsonb, registry_entries),
+    theft_alert = coalesce($13, theft_alert),
+    sunarp_checked_at = $14,
     updated_at = now()
-WHERE plate = $6 AND is_active
+WHERE plate = $15 AND is_active
+  AND (sunarp_checked_at IS NULL OR sunarp_checked_at < $14)
 `
 
 type EnrichVehicleParams struct {
@@ -90,6 +119,15 @@ type EnrichVehicleParams struct {
 	ModelYear          pgtype.Int2
 	Color              pgtype.Text
 	RegistrationStatus pgtype.Text
+	SerialNumber       pgtype.Text
+	Vin                pgtype.Text
+	EngineNumber       pgtype.Text
+	PreviousPlate      pgtype.Text
+	RegistryOffice     pgtype.Text
+	RegistryNotes      pgtype.Text
+	RegistryEntries    []byte
+	TheftAlert         pgtype.Text
+	CheckedAt          pgtype.Timestamptz
 	Plate              string
 }
 
@@ -100,6 +138,15 @@ func (q *Queries) EnrichVehicle(ctx context.Context, arg EnrichVehicleParams) er
 		arg.ModelYear,
 		arg.Color,
 		arg.RegistrationStatus,
+		arg.SerialNumber,
+		arg.Vin,
+		arg.EngineNumber,
+		arg.PreviousPlate,
+		arg.RegistryOffice,
+		arg.RegistryNotes,
+		arg.RegistryEntries,
+		arg.TheftAlert,
+		arg.CheckedAt,
 		arg.Plate,
 	)
 	return err

@@ -16,7 +16,7 @@ VALUES ($1, $2, $3, $4, $5) ON CONFLICT (document_type, document_number) DO NOTH
 SELECT id FROM driver_licenses
 WHERE driver_id = sqlc.arg(driver_id) AND license_number = sqlc.arg(license_number)
   AND (sqlc.narg(license_id)::uuid IS NULL OR id = sqlc.narg(license_id)::uuid)
-ORDER BY id LIMIT 2 FOR SHARE;
+ORDER BY id LIMIT 2 FOR NO KEY UPDATE;
 
 -- name: EnsureLoadLicense :execrows
 INSERT INTO driver_licenses (driver_id, license_number) VALUES ($1, $2)

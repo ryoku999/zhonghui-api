@@ -7,9 +7,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"zhonghui-api/internal/database/db"
+	"zhonghui-api/internal/modules/lookups"
 )
 
-func resolveParties(ctx context.Context, q *db.Queries, data *snapshot, record *db.CreateLoadRecordParams) (map[string]string, error) {
+func resolveParties(ctx context.Context, q *db.Queries, data *snapshot, record *db.CreateLoadRecordParams, verified map[string]lookups.Vehicle) (map[string]string, error) {
 	history := make(map[string]string)
 	companyCount, err := q.EnsureLoadCompany(ctx, db.EnsureLoadCompanyParams{Ruc: data.RUC, LegalName: data.LegalName})
 	if err != nil {
@@ -87,21 +88,33 @@ func resolveParties(ctx context.Context, q *db.Queries, data *snapshot, record *
 		data.LicenseID = ids[0].String()
 	}
 
-	vehicles := []struct {
+	type vehicleRef struct {
 		field, plate, kind string
 		id                 *pgtype.UUID
-	}{
+	}
+	vehicles := []vehicleRef{
 		{"tractorPlate", data.TractorPlate, "TRACTOR", &record.TractorID},
-		{"trailerPlate", data.TrailerPlate, "TRAILER", &record.TrailerID},
+	}
+	if data.TrailerPlate != "" {
+		vehicles = append(vehicles, vehicleRef{"trailerPlate", data.TrailerPlate, "TRAILER", &record.TrailerID})
 	}
 	// Acquire plate locks in the same order across concurrent registrations.
-	if vehicles[0].plate > vehicles[1].plate {
+	if len(vehicles) == 2 && vehicles[0].plate > vehicles[1].plate {
 		vehicles[0], vehicles[1] = vehicles[1], vehicles[0]
 	}
 	for _, vehicle := range vehicles {
 		count, err := q.EnsureLoadVehicle(ctx, db.EnsureLoadVehicleParams{Plate: vehicle.plate, VehicleType: vehicle.kind})
 		if err != nil {
 			return nil, err
+		}
+		if car, ok := verified[vehicle.plate]; ok {
+			params, err := lookups.VehicleUpdate(car)
+			if err != nil {
+				return nil, err
+			}
+			if err := q.EnrichVehicle(ctx, params); err != nil {
+				return nil, err
+			}
 		}
 		row, err := q.FindLoadVehicle(ctx, vehicle.plate)
 		if err != nil {
@@ -112,8 +125,15 @@ func resolveParties(ctx context.Context, q *db.Queries, data *snapshot, record *
 			return nil, fiber.ErrConflict
 		}
 		*vehicle.id = row.ID
+		details, err := lookups.DetailOfVehicle(row)
+		if err != nil {
+			return nil, err
+		}
 		if vehicle.kind == "TRAILER" {
 			data.TrailerType = row.VehicleType
+			data.TrailerDetails = &details
+		} else {
+			data.TractorDetails = &details
 		}
 		if count == 0 {
 			history[vehicle.field] = "HISTORY"

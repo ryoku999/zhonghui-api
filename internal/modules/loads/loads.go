@@ -61,7 +61,10 @@ func (s service) create(c fiber.Ctx) error {
 	if !valid {
 		return fiber.ErrBadRequest
 	}
-	encoded, err := json.Marshal(input)
+	fingerprint := input
+	fingerprint.LicenseVerification = ""
+	fingerprint.TractorVerification, fingerprint.TrailerVerification = "", ""
+	encoded, err := json.Marshal(fingerprint)
 	if err != nil {
 		return err
 	}
@@ -78,6 +81,16 @@ func (s service) create(c fiber.Ctx) error {
 	}
 	for _, field := range input.ExternalFields {
 		external[field] = s.lookups.MatchesCached(input.RUC, dni, field, externalValues[field])
+	}
+	vehicles := make(map[string]lookups.Vehicle, 2)
+	for _, item := range []struct{ field, plate, proof string }{
+		{"tractorPlate", input.TractorPlate, input.TractorVerification},
+		{"trailerPlate", input.TrailerPlate, input.TrailerVerification},
+	} {
+		if vehicle, ok := s.lookups.SelectedVehicle(item.proof, actor.ID.String(), item.plate); ok {
+			vehicles[item.plate] = vehicle
+			external[item.field] = item.proof != "" || external[item.field]
+		}
 	}
 	var result db.GetLoadResultRow
 	replayed := false
@@ -112,13 +125,32 @@ func (s service) create(c fiber.Ctx) error {
 
 		data := snapshot{createInput: input, LocationName: point.Name}
 		data.ExternalFields = nil
+		data.LicenseVerification = ""
+		data.TractorVerification, data.TrailerVerification = "", ""
 		record := db.CreateLoadRecordParams{
 			LoadingLocationID: locationID, CreatedBy: actor.ID,
 			UnitDescription: optionalText(input.UnitDescription), Notes: optionalText(input.Notes),
 		}
-		history, err := resolveParties(ctx, q, &data, &record)
+		history, err := resolveParties(ctx, q, &data, &record, vehicles)
 		if err != nil {
 			return err
+		}
+		if record.DriverLicenseID.Valid {
+			license, checkedAt, verified := s.lookups.SelectedLicense(input.LicenseVerification, actor.ID.String(), dni, input.LicenseNumber)
+			if verified && dni != "" {
+				if err := q.EnrichLicense(ctx, lookups.LicenseUpdate(dni, record.DriverLicenseID, license, checkedAt)); err != nil {
+					return err
+				}
+			}
+			saved, err := q.ReadLicenseDetails(ctx, record.DriverLicenseID)
+			if err != nil {
+				return err
+			}
+			details := lookups.DetailOf(saved)
+			data.LicenseDetails = &details
+			if verified && saved.MtcCheckedAt.Valid && (saved.IssuingCountry.String == "PE" || !saved.IssuingCountry.Valid) {
+				external["licenseNumber"] = true
+			}
 		}
 		now := time.Now().UTC()
 		year, month, day := now.In(s.lima).Date()
@@ -140,8 +172,11 @@ func (s service) create(c fiber.Ctx) error {
 		history["locationId"], history["locationName"] = "HISTORY", "HISTORY"
 		fields := []string{
 			"locationId", "locationName", "ruc", "legalName", "documentType", "documentNumber",
-			"firstNames", "lastNames", "licenseNumber", "phone", "tractorPlate", "trailerPlate", "trailerType",
+			"firstNames", "lastNames", "licenseNumber", "phone", "tractorPlate",
 			"unitDescription", "notes",
+		}
+		if input.TrailerPlate != "" {
+			fields = append(fields, "trailerPlate", "trailerType")
 		}
 		provenance := db.WriteLoadProvenanceParams{
 			LoadRecordID: id, Version: 1, FieldNames: fields,
@@ -179,7 +214,7 @@ func (s service) create(c fiber.Ctx) error {
 	if !replayed {
 		c.Status(fiber.StatusCreated)
 	}
-	s.lookups.EnrichFromCache(ctx, input.RUC, dni, input.TractorPlate, input.TrailerPlate)
+	s.lookups.EnrichCompanyFromCache(ctx, input.RUC)
 	return respond(c, result)
 }
 
