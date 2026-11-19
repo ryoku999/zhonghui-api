@@ -89,11 +89,14 @@ type Company struct {
 }
 
 type License struct {
-	Number         string `json:"licenseNumber"`
-	Category       string `json:"category,omitempty"`
-	Status         string `json:"licenseStatus,omitempty"`
-	IssuedOn       string `json:"issuedOn,omitempty"`
-	RevalidationOn string `json:"revalidationOn,omitempty"`
+	Number         string   `json:"licenseNumber"`
+	Category       string   `json:"category,omitempty"`
+	Status         string   `json:"licenseStatus,omitempty"`
+	IssuedOn       string   `json:"issuedOn,omitempty"`
+	RevalidationOn string   `json:"revalidationOn,omitempty"`
+	Restrictions   []string `json:"restrictions"`
+	IssuingCenter  string   `json:"issuingCenter,omitempty"`
+	IsElectronic   *bool    `json:"isElectronic,omitempty"`
 }
 
 type Driver struct {
@@ -102,6 +105,7 @@ type Driver struct {
 	LastNames  string    `json:"lastNames"`
 	Licenses   []License `json:"licenses"`
 	Incomplete bool      `json:"incomplete"`
+	CheckedAt  time.Time `json:"checkedAt"`
 }
 
 type Vehicle struct {
@@ -136,17 +140,21 @@ func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
 			DNI        string `json:"dni"`
 			Found      *bool  `json:"encontrado"`
 			Incomplete bool   `json:"incompleto"`
+			CheckedAt  string `json:"fecha_consulta"`
 			Driver     struct {
 				Names  string `json:"nombres"`
 				First  string `json:"apellido_paterno"`
 				Second string `json:"apellido_materno"`
 			} `json:"conductor"`
 			Licenses []struct {
-				Number     string `json:"numero"`
-				Category   string `json:"categoria"`
-				Status     string `json:"estado"`
-				Issued     string `json:"fecha_expedicion"`
-				Revalidate string `json:"fecha_revalidacion"`
+				Number       string   `json:"numero"`
+				Category     string   `json:"categoria"`
+				Status       string   `json:"estado"`
+				Issued       string   `json:"fecha_expedicion"`
+				Revalidate   string   `json:"fecha_revalidacion"`
+				Restrictions []string `json:"restricciones"`
+				Center       string   `json:"centro_emision"`
+				Electronic   *bool    `json:"electronica"`
 			} `json:"licencias"`
 		}
 		if err := p.post(ctx, "/mtc/licencia", map[string]string{"dni": key}, &body); err != nil {
@@ -159,11 +167,16 @@ func (p provider) fetch(ctx context.Context, kind, key string) (entry, error) {
 			return entry{ttl: time.Minute}, nil
 		}
 		data := Driver{DNI: key, FirstNames: body.Driver.Names, LastNames: strings.TrimSpace(body.Driver.First + " " + body.Driver.Second),
-			Incomplete: body.Incomplete, Licenses: []License{}}
+			Incomplete: body.Incomplete, Licenses: []License{}, CheckedAt: mtcCheckedAt(body.CheckedAt)}
 		for _, row := range body.Licenses {
 			number := strings.ToUpper(strings.TrimSpace(row.Number))
 			if number != "" {
-				data.Licenses = append(data.Licenses, License{number, row.Category, row.Status, isoDate(row.Issued), isoDate(row.Revalidate)})
+				data.Licenses = append(data.Licenses, License{
+					Number: number, Category: cleanText(row.Category, 80), Status: cleanText(row.Status, 80),
+					IssuedOn: isoDate(row.Issued), RevalidationOn: isoDate(row.Revalidate),
+					Restrictions: cleanRestrictions(row.Restrictions), IssuingCenter: cleanText(row.Center, 240),
+					IsElectronic: row.Electronic,
+				})
 			}
 		}
 		ttl := 10 * time.Minute

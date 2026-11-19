@@ -18,7 +18,8 @@ LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
 
 -- name: SearchLicenses :many
 SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country,
-       l.license_status, l.issued_on, d.document_number AS driver_document, d.document_type AS driver_document_type
+       l.license_status, l.issued_on, l.revalidation_on,
+       d.document_number AS driver_document, d.document_type AS driver_document_type
 FROM driver_licenses l
 JOIN drivers d ON d.id = l.driver_id
 WHERE d.is_active
@@ -26,6 +27,11 @@ WHERE d.is_active
   AND strpos(l.license_number, upper(sqlc.arg(search)::text)) > 0
 ORDER BY l.license_number, l.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
+
+-- name: ReadLicenseDetails :one
+SELECT l.* FROM driver_licenses l
+JOIN drivers d ON d.id = l.driver_id
+WHERE l.id = $1 AND d.is_active;
 
 -- name: SearchVehicles :many
 SELECT id, plate, vehicle_type, make, model, coalesce(model_year::text, '') AS model_year, color, registration_status

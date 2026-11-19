@@ -61,6 +61,11 @@ type DriverLicense struct {
 	UpdatedAt      pgtype.Timestamptz
 	LicenseStatus  pgtype.Text
 	IssuedOn       pgtype.Date
+	RevalidationOn pgtype.Date
+	Restrictions   []string
+	IssuingCenter  pgtype.Text
+	IsElectronic   pgtype.Bool
+	MtcCheckedAt   pgtype.Timestamptz
 }
 
 type ExternalApiQuery struct {

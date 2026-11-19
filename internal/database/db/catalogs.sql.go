@@ -11,6 +11,36 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const readLicenseDetails = `-- name: ReadLicenseDetails :one
+SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country, l.created_at, l.updated_at, l.license_status, l.issued_on, l.revalidation_on, l.restrictions, l.issuing_center, l.is_electronic, l.mtc_checked_at FROM driver_licenses l
+JOIN drivers d ON d.id = l.driver_id
+WHERE l.id = $1 AND d.is_active
+`
+
+func (q *Queries) ReadLicenseDetails(ctx context.Context, id pgtype.UUID) (DriverLicense, error) {
+	row := q.db.QueryRow(ctx, readLicenseDetails, id)
+	var i DriverLicense
+	err := row.Scan(
+		&i.ID,
+		&i.DriverID,
+		&i.LicenseNumber,
+		&i.LicenseClass,
+		&i.Category,
+		&i.ExpiresOn,
+		&i.IssuingCountry,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LicenseStatus,
+		&i.IssuedOn,
+		&i.RevalidationOn,
+		&i.Restrictions,
+		&i.IssuingCenter,
+		&i.IsElectronic,
+		&i.MtcCheckedAt,
+	)
+	return i, err
+}
+
 const searchCompanies = `-- name: SearchCompanies :many
 SELECT id, ruc, legal_name
 FROM companies
@@ -107,7 +137,8 @@ func (q *Queries) SearchDrivers(ctx context.Context, arg SearchDriversParams) ([
 
 const searchLicenses = `-- name: SearchLicenses :many
 SELECT l.id, l.driver_id, l.license_number, l.license_class, l.category, l.expires_on, l.issuing_country,
-       l.license_status, l.issued_on, d.document_number AS driver_document, d.document_type AS driver_document_type
+       l.license_status, l.issued_on, l.revalidation_on,
+       d.document_number AS driver_document, d.document_type AS driver_document_type
 FROM driver_licenses l
 JOIN drivers d ON d.id = l.driver_id
 WHERE d.is_active
@@ -134,6 +165,7 @@ type SearchLicensesRow struct {
 	IssuingCountry     pgtype.Text
 	LicenseStatus      pgtype.Text
 	IssuedOn           pgtype.Date
+	RevalidationOn     pgtype.Date
 	DriverDocument     string
 	DriverDocumentType string
 }
@@ -162,6 +194,7 @@ func (q *Queries) SearchLicenses(ctx context.Context, arg SearchLicensesParams) 
 			&i.IssuingCountry,
 			&i.LicenseStatus,
 			&i.IssuedOn,
+			&i.RevalidationOn,
 			&i.DriverDocument,
 			&i.DriverDocumentType,
 		); err != nil {

@@ -144,7 +144,7 @@ const findLoadLicenses = `-- name: FindLoadLicenses :many
 SELECT id FROM driver_licenses
 WHERE driver_id = $1 AND license_number = $2
   AND ($3::uuid IS NULL OR id = $3::uuid)
-ORDER BY id LIMIT 2 FOR SHARE
+ORDER BY id LIMIT 2 FOR NO KEY UPDATE
 `
 
 type FindLoadLicensesParams struct {

@@ -32,12 +32,13 @@ type entry struct {
 }
 
 type Service struct {
-	client provider
-	db     *db.Queries
-	logger *slog.Logger
-	mu     sync.Mutex
-	cache  map[string]entry
-	flight singleflight.Group
+	client     provider
+	db         *db.Queries
+	logger     *slog.Logger
+	mu         sync.Mutex
+	cache      map[string]entry
+	flight     singleflight.Group
+	licenseKey []byte
 }
 
 func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler, logger *slog.Logger) (*Service, error) {
@@ -45,7 +46,7 @@ func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler, logge
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{client: client, db: db.New(pool), logger: logger, cache: make(map[string]entry)}
+	s := &Service{client: client, db: db.New(pool), logger: logger, cache: make(map[string]entry), licenseKey: licenseVerificationKey()}
 	routes := app.Group("/api/v1/lookups", func(c fiber.Ctx) error {
 		c.Set(fiber.HeaderCacheControl, "no-store")
 		ctx, cancel := context.WithTimeout(c.Context(), 37*time.Second)
@@ -142,7 +143,29 @@ func (s *Service) handle(kind string) fiber.Handler {
 				return err
 			}
 		}
-		return c.JSON(fiber.Map{"found": result.data != nil, "source": "APISTED", "data": result.data})
+		data := result.data
+		if driver, ok := data.(Driver); ok {
+			type option struct {
+				License
+				Verification string `json:"verification"`
+			}
+			licenses := make([]option, 0, len(driver.Licenses))
+			for _, row := range driver.Licenses {
+				proof, err := s.signLicense(licenseVerification{
+					OwnerID: auth.CurrentUser(c).ID.String(), DNI: driver.DNI, CheckedAt: driver.CheckedAt,
+					ExpiresAt: time.Now().Add(7 * 24 * time.Hour).Unix(), License: row,
+				})
+				if err != nil {
+					return err
+				}
+				licenses = append(licenses, option{License: row, Verification: proof})
+			}
+			data = struct {
+				Driver
+				Licenses []option `json:"licenses"`
+			}{Driver: driver, Licenses: licenses}
+		}
+		return c.JSON(fiber.Map{"found": data != nil, "source": "APISTED", "data": data})
 	}
 }
 
@@ -211,8 +234,8 @@ func normalizePlate(text string) string {
 	return strings.NewReplacer("-", "", " ", "").Replace(strings.ToUpper(strings.TrimSpace(text)))
 }
 
-func (s *Service) EnrichFromCache(ctx context.Context, ruc, dni, tractor, trailer string) {
-	for _, key := range []string{"RUC:" + ruc, "DNI:" + dni, "PLATE:" + tractor, "PLATE:" + trailer} {
+func (s *Service) EnrichFromCache(ctx context.Context, ruc, tractor, trailer string) {
+	for _, key := range []string{"RUC:" + ruc, "PLATE:" + tractor, "PLATE:" + trailer} {
 		if item, ok := s.cached(key); ok {
 			if err := s.enrich(ctx, item); err != nil {
 				s.logger.Warn("could not save verified catalog fields")
@@ -265,11 +288,7 @@ func (s *Service) enrich(ctx context.Context, result entry) error {
 		})
 	case Driver:
 		for _, row := range value.Licenses {
-			issued, err := time.Parse(time.DateOnly, row.IssuedOn)
-			if err := s.db.EnrichLicense(ctx, db.EnrichLicenseParams{
-				Dni: value.DNI, LicenseNumber: row.Number, Category: text(row.Category), LicenseStatus: text(row.Status),
-				IssuedOn: pgtype.Date{Time: issued, Valid: err == nil},
-			}); err != nil {
+			if err := s.db.EnrichLicense(ctx, LicenseUpdate(value.DNI, pgtype.UUID{}, row, value.CheckedAt)); err != nil {
 				return err
 			}
 		}

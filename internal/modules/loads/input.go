@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"zhonghui-api/internal/modules/lookups"
 )
 
 var (
@@ -18,27 +19,29 @@ var (
 )
 
 type createInput struct {
-	LocationID      string   `json:"locationId"`
-	RUC             string   `json:"ruc"`
-	LegalName       string   `json:"legalName"`
-	DocumentType    string   `json:"documentType"`
-	DocumentNumber  string   `json:"documentNumber"`
-	FirstNames      string   `json:"firstNames"`
-	LastNames       string   `json:"lastNames"`
-	LicenseNumber   string   `json:"licenseNumber"`
-	LicenseID       string   `json:"licenseId,omitempty"`
-	Phone           string   `json:"phone"`
-	TractorPlate    string   `json:"tractorPlate"`
-	TrailerPlate    string   `json:"trailerPlate"`
-	UnitDescription string   `json:"unitDescription"`
-	Notes           string   `json:"notes"`
-	ExternalFields  []string `json:"externalFields,omitempty"`
+	LocationID          string   `json:"locationId"`
+	RUC                 string   `json:"ruc"`
+	LegalName           string   `json:"legalName"`
+	DocumentType        string   `json:"documentType"`
+	DocumentNumber      string   `json:"documentNumber"`
+	FirstNames          string   `json:"firstNames"`
+	LastNames           string   `json:"lastNames"`
+	LicenseNumber       string   `json:"licenseNumber"`
+	LicenseID           string   `json:"licenseId,omitempty"`
+	Phone               string   `json:"phone"`
+	TractorPlate        string   `json:"tractorPlate"`
+	TrailerPlate        string   `json:"trailerPlate"`
+	UnitDescription     string   `json:"unitDescription"`
+	Notes               string   `json:"notes"`
+	ExternalFields      []string `json:"externalFields,omitempty"`
+	LicenseVerification string   `json:"licenseVerification,omitempty"`
 }
 
 type snapshot struct {
 	createInput
-	LocationName string `json:"locationName"`
-	TrailerType  string `json:"trailerType"`
+	LocationName   string                  `json:"locationName"`
+	TrailerType    string                  `json:"trailerType"`
+	LicenseDetails *lookups.LicenseDetails `json:"licenseDetails,omitempty"`
 }
 
 func (in *createInput) normalize() (pgtype.UUID, bool) {

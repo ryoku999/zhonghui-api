@@ -61,7 +61,9 @@ func (s service) create(c fiber.Ctx) error {
 	if !valid {
 		return fiber.ErrBadRequest
 	}
-	encoded, err := json.Marshal(input)
+	fingerprint := input
+	fingerprint.LicenseVerification = ""
+	encoded, err := json.Marshal(fingerprint)
 	if err != nil {
 		return err
 	}
@@ -112,6 +114,7 @@ func (s service) create(c fiber.Ctx) error {
 
 		data := snapshot{createInput: input, LocationName: point.Name}
 		data.ExternalFields = nil
+		data.LicenseVerification = ""
 		record := db.CreateLoadRecordParams{
 			LoadingLocationID: locationID, CreatedBy: actor.ID,
 			UnitDescription: optionalText(input.UnitDescription), Notes: optionalText(input.Notes),
@@ -119,6 +122,23 @@ func (s service) create(c fiber.Ctx) error {
 		history, err := resolveParties(ctx, q, &data, &record)
 		if err != nil {
 			return err
+		}
+		if record.DriverLicenseID.Valid {
+			license, checkedAt, verified := s.lookups.SelectedLicense(input.LicenseVerification, actor.ID.String(), dni, input.LicenseNumber)
+			if verified && dni != "" {
+				if err := q.EnrichLicense(ctx, lookups.LicenseUpdate(dni, record.DriverLicenseID, license, checkedAt)); err != nil {
+					return err
+				}
+			}
+			saved, err := q.ReadLicenseDetails(ctx, record.DriverLicenseID)
+			if err != nil {
+				return err
+			}
+			details := lookups.DetailOf(saved)
+			data.LicenseDetails = &details
+			if verified && saved.MtcCheckedAt.Valid && (saved.IssuingCountry.String == "PE" || !saved.IssuingCountry.Valid) {
+				external["licenseNumber"] = true
+			}
 		}
 		now := time.Now().UTC()
 		year, month, day := now.In(s.lima).Date()
@@ -182,7 +202,7 @@ func (s service) create(c fiber.Ctx) error {
 	if !replayed {
 		c.Status(fiber.StatusCreated)
 	}
-	s.lookups.EnrichFromCache(ctx, input.RUC, dni, input.TractorPlate, input.TrailerPlate)
+	s.lookups.EnrichFromCache(ctx, input.RUC, input.TractorPlate, input.TrailerPlate)
 	return respond(c, result)
 }
 

@@ -46,20 +46,33 @@ UPDATE driver_licenses l SET
     category = coalesce($1, l.category),
     license_status = coalesce($2, l.license_status),
     issued_on = coalesce($3, l.issued_on),
+    revalidation_on = coalesce($4, l.revalidation_on),
+    restrictions = coalesce($5::text[], l.restrictions),
+    issuing_center = coalesce($6, l.issuing_center),
+    is_electronic = coalesce($7, l.is_electronic),
+    mtc_checked_at = $8,
     updated_at = now()
 FROM drivers d
 WHERE d.id = l.driver_id AND d.document_type = 'DNI'
-  AND d.document_number = $4 AND d.is_active
-  AND l.license_number = $5
+  AND d.document_number = $9 AND d.is_active
+  AND l.license_number = $10
+  AND ($11::uuid IS NULL OR l.id = $11::uuid)
+  AND (l.mtc_checked_at IS NULL OR l.mtc_checked_at < $8)
   AND (l.issuing_country IS NULL OR l.issuing_country = 'PE')
 `
 
 type EnrichLicenseParams struct {
-	Category      pgtype.Text
-	LicenseStatus pgtype.Text
-	IssuedOn      pgtype.Date
-	Dni           string
-	LicenseNumber string
+	Category       pgtype.Text
+	LicenseStatus  pgtype.Text
+	IssuedOn       pgtype.Date
+	RevalidationOn pgtype.Date
+	Restrictions   []string
+	IssuingCenter  pgtype.Text
+	IsElectronic   pgtype.Bool
+	CheckedAt      pgtype.Timestamptz
+	Dni            string
+	LicenseNumber  string
+	LicenseID      pgtype.UUID
 }
 
 func (q *Queries) EnrichLicense(ctx context.Context, arg EnrichLicenseParams) error {
@@ -67,8 +80,14 @@ func (q *Queries) EnrichLicense(ctx context.Context, arg EnrichLicenseParams) er
 		arg.Category,
 		arg.LicenseStatus,
 		arg.IssuedOn,
+		arg.RevalidationOn,
+		arg.Restrictions,
+		arg.IssuingCenter,
+		arg.IsElectronic,
+		arg.CheckedAt,
 		arg.Dni,
 		arg.LicenseNumber,
+		arg.LicenseID,
 	)
 	return err
 }
