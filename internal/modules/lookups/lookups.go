@@ -164,6 +164,18 @@ func (s *Service) handle(kind string) fiber.Handler {
 				Driver
 				Licenses []option `json:"licenses"`
 			}{Driver: driver, Licenses: licenses}
+		} else if vehicle, ok := data.(Vehicle); ok {
+			proof, err := s.signVerification(vehicleVerificationDomain, vehicleVerification{
+				OwnerID: auth.CurrentUser(c).ID.String(), ExpiresAt: time.Now().Add(7 * 24 * time.Hour).Unix(),
+				Vehicle: vehicle,
+			})
+			if err != nil {
+				return err
+			}
+			data = struct {
+				Vehicle
+				Verification string `json:"verification"`
+			}{Vehicle: vehicle, Verification: proof}
 		}
 		return c.JSON(fiber.Map{"found": data != nil, "source": "APISTED", "data": data})
 	}
@@ -234,12 +246,10 @@ func normalizePlate(text string) string {
 	return strings.NewReplacer("-", "", " ", "").Replace(strings.ToUpper(strings.TrimSpace(text)))
 }
 
-func (s *Service) EnrichFromCache(ctx context.Context, ruc, tractor, trailer string) {
-	for _, key := range []string{"RUC:" + ruc, "PLATE:" + tractor, "PLATE:" + trailer} {
-		if item, ok := s.cached(key); ok {
-			if err := s.enrich(ctx, item); err != nil {
-				s.logger.Warn("could not save verified catalog fields")
-			}
+func (s *Service) EnrichCompanyFromCache(ctx context.Context, ruc string) {
+	if item, ok := s.cached("RUC:" + ruc); ok {
+		if err := s.enrich(ctx, item); err != nil {
+			s.logger.Warn("could not save verified company fields")
 		}
 	}
 }
@@ -293,11 +303,11 @@ func (s *Service) enrich(ctx context.Context, result entry) error {
 			}
 		}
 	case Vehicle:
-		return s.db.EnrichVehicle(ctx, db.EnrichVehicleParams{
-			Plate: value.Plate, Make: text(value.Make), Model: text(value.Model), Color: text(value.Color),
-			ModelYear:          pgtype.Int2{Int16: value.ModelYear, Valid: value.ModelYear != 0},
-			RegistrationStatus: text(value.RegistrationStatus),
-		})
+		params, err := VehicleUpdate(value)
+		if err != nil {
+			return err
+		}
+		return s.db.EnrichVehicle(ctx, params)
 	}
 	return nil
 }

@@ -174,7 +174,7 @@ func (q *Queries) FindLoadLicenses(ctx context.Context, arg FindLoadLicensesPara
 }
 
 const findLoadVehicle = `-- name: FindLoadVehicle :one
-SELECT id, plate, vehicle_type, make, model, is_active, created_at, updated_at, model_year, color, registration_status FROM vehicles WHERE plate = $1 FOR SHARE
+SELECT id, plate, vehicle_type, make, model, is_active, created_at, updated_at, model_year, color, registration_status, serial_number, vin, engine_number, previous_plate, registry_office, registry_notes, registry_entries, theft_alert, sunarp_checked_at FROM vehicles WHERE plate = $1 FOR SHARE
 `
 
 func (q *Queries) FindLoadVehicle(ctx context.Context, plate string) (Vehicle, error) {
@@ -192,6 +192,15 @@ func (q *Queries) FindLoadVehicle(ctx context.Context, plate string) (Vehicle, e
 		&i.ModelYear,
 		&i.Color,
 		&i.RegistrationStatus,
+		&i.SerialNumber,
+		&i.Vin,
+		&i.EngineNumber,
+		&i.PreviousPlate,
+		&i.RegistryOffice,
+		&i.RegistryNotes,
+		&i.RegistryEntries,
+		&i.TheftAlert,
+		&i.SunarpCheckedAt,
 	)
 	return i, err
 }

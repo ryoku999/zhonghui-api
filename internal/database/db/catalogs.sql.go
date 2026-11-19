@@ -41,6 +41,38 @@ func (q *Queries) ReadLicenseDetails(ctx context.Context, id pgtype.UUID) (Drive
 	return i, err
 }
 
+const readVehicleDetails = `-- name: ReadVehicleDetails :one
+SELECT id, plate, vehicle_type, make, model, is_active, created_at, updated_at, model_year, color, registration_status, serial_number, vin, engine_number, previous_plate, registry_office, registry_notes, registry_entries, theft_alert, sunarp_checked_at FROM vehicles WHERE id = $1 AND is_active
+`
+
+func (q *Queries) ReadVehicleDetails(ctx context.Context, id pgtype.UUID) (Vehicle, error) {
+	row := q.db.QueryRow(ctx, readVehicleDetails, id)
+	var i Vehicle
+	err := row.Scan(
+		&i.ID,
+		&i.Plate,
+		&i.VehicleType,
+		&i.Make,
+		&i.Model,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ModelYear,
+		&i.Color,
+		&i.RegistrationStatus,
+		&i.SerialNumber,
+		&i.Vin,
+		&i.EngineNumber,
+		&i.PreviousPlate,
+		&i.RegistryOffice,
+		&i.RegistryNotes,
+		&i.RegistryEntries,
+		&i.TheftAlert,
+		&i.SunarpCheckedAt,
+	)
+	return i, err
+}
+
 const searchCompanies = `-- name: SearchCompanies :many
 SELECT id, ruc, legal_name
 FROM companies

@@ -168,4 +168,13 @@ type Vehicle struct {
 	ModelYear          pgtype.Int2
 	Color              pgtype.Text
 	RegistrationStatus pgtype.Text
+	SerialNumber       pgtype.Text
+	Vin                pgtype.Text
+	EngineNumber       pgtype.Text
+	PreviousPlate      pgtype.Text
+	RegistryOffice     pgtype.Text
+	RegistryNotes      pgtype.Text
+	RegistryEntries    []byte
+	TheftAlert         pgtype.Text
+	SunarpCheckedAt    pgtype.Timestamptz
 }

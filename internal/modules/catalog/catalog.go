@@ -32,6 +32,7 @@ func Register(app *fiber.App, pool *pgxpool.Pool, protected fiber.Handler) {
 	app.Get("/api/v1/licenses", auth.RequestContext, protected, s.licenses)
 	app.Get("/api/v1/licenses/:id", auth.RequestContext, protected, s.licenseDetails)
 	app.Get("/api/v1/vehicles", auth.RequestContext, protected, s.vehicles)
+	app.Get("/api/v1/vehicles/:id", auth.RequestContext, protected, s.vehicleDetails)
 }
 
 type page struct {
@@ -161,4 +162,20 @@ func conflictOnDuplicate(err error) error {
 		return fiber.ErrConflict
 	}
 	return err
+}
+
+func (s catalog) vehicleDetails(c fiber.Ctx) error {
+	id, err := pathID(c, "id")
+	if err != nil {
+		return err
+	}
+	row, err := s.db.ReadVehicleDetails(c.Context(), id)
+	if err != nil {
+		return notFound(err)
+	}
+	details, err := lookups.DetailOfVehicle(row)
+	if err != nil {
+		return err
+	}
+	return c.JSON(details)
 }

@@ -38,5 +38,15 @@ UPDATE vehicles SET
     model_year = coalesce(sqlc.narg(model_year), model_year),
     color = coalesce(sqlc.narg(color), color),
     registration_status = coalesce(sqlc.narg(registration_status), registration_status),
+    serial_number = coalesce(sqlc.narg(serial_number), serial_number),
+    vin = coalesce(sqlc.narg(vin), vin),
+    engine_number = coalesce(sqlc.narg(engine_number), engine_number),
+    previous_plate = coalesce(sqlc.narg(previous_plate), previous_plate),
+    registry_office = coalesce(sqlc.narg(registry_office), registry_office),
+    registry_notes = coalesce(sqlc.narg(registry_notes), registry_notes),
+    registry_entries = coalesce(sqlc.narg(registry_entries)::jsonb, registry_entries),
+    theft_alert = coalesce(sqlc.narg(theft_alert), theft_alert),
+    sunarp_checked_at = sqlc.arg(checked_at),
     updated_at = now()
-WHERE plate = sqlc.arg(plate) AND is_active;
+WHERE plate = sqlc.arg(plate) AND is_active
+  AND (sunarp_checked_at IS NULL OR sunarp_checked_at < sqlc.arg(checked_at));

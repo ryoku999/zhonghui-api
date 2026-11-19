@@ -56,30 +56,40 @@ func licenseVerificationKey() []byte {
 }
 
 func (s *Service) signLicense(data licenseVerification) (string, error) {
+	return s.signVerification("", data)
+}
+
+func (s *Service) signVerification(domain string, data any) (string, error) {
 	payload, err := json.Marshal(data)
 	if err != nil {
 		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(s.licenseMAC(payload)), nil
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(s.verificationMAC(domain, payload)), nil
 }
 
-func (s *Service) licenseMAC(payload []byte) []byte {
+func (s *Service) verificationMAC(domain string, payload []byte) []byte {
 	sum := hmac.New(sha256.New, s.licenseKey)
+	sum.Write([]byte(domain))
 	sum.Write(payload)
 	return sum.Sum(nil)
 }
 
-func (s *Service) SelectedLicense(proof, ownerID, dni, number string) (License, time.Time, bool) {
+func (s *Service) readVerification(domain, proof string, maxSize int, decoded any) bool {
 	payload, signature, found := strings.Cut(proof, ".")
-	if found && len(proof) <= 12_000 {
-		body, bodyErr := base64.RawURLEncoding.DecodeString(payload)
-		mac, macErr := base64.RawURLEncoding.DecodeString(signature)
-		var decoded licenseVerification
-		if bodyErr == nil && macErr == nil && hmac.Equal(s.licenseMAC(body), mac) && json.Unmarshal(body, &decoded) == nil &&
-			decoded.OwnerID == ownerID && decoded.DNI == dni && decoded.License.Number == number &&
-			decoded.ExpiresAt > time.Now().Unix() {
-			return decoded.License, decoded.CheckedAt, true
-		}
+	if !found || len(proof) > maxSize {
+		return false
+	}
+	body, bodyErr := base64.RawURLEncoding.DecodeString(payload)
+	mac, macErr := base64.RawURLEncoding.DecodeString(signature)
+	return bodyErr == nil && macErr == nil && hmac.Equal(s.verificationMAC(domain, body), mac) &&
+		json.Unmarshal(body, decoded) == nil
+}
+
+func (s *Service) SelectedLicense(proof, ownerID, dni, number string) (License, time.Time, bool) {
+	var decoded licenseVerification
+	if s.readVerification("", proof, 12_000, &decoded) && decoded.OwnerID == ownerID && decoded.DNI == dni &&
+		decoded.License.Number == number && decoded.ExpiresAt > time.Now().Unix() {
+		return decoded.License, decoded.CheckedAt, true
 	}
 	item, _ := s.cached("DNI:" + dni)
 	if driver, ok := item.data.(Driver); ok {
@@ -109,7 +119,7 @@ func LicenseUpdate(dni string, id pgtype.UUID, license License, checkedAt time.T
 	}
 }
 
-func mtcCheckedAt(value string) time.Time {
+func providerCheckedAt(value string) time.Time {
 	now := time.Now().UTC()
 	if lima, err := time.LoadLocation("America/Lima"); err == nil {
 		if day, err := time.ParseInLocation("02/01/2006 15:04:05", strings.TrimSpace(value), lima); err == nil && !day.After(now) {

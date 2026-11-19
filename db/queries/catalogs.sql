@@ -41,3 +41,6 @@ WHERE is_active
   AND strpos(plate, sqlc.arg(search)::text) > 0
 ORDER BY plate, id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::integer;
+
+-- name: ReadVehicleDetails :one
+SELECT * FROM vehicles WHERE id = $1 AND is_active;

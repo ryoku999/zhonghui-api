@@ -35,6 +35,8 @@ type createInput struct {
 	Notes               string   `json:"notes"`
 	ExternalFields      []string `json:"externalFields,omitempty"`
 	LicenseVerification string   `json:"licenseVerification,omitempty"`
+	TractorVerification string   `json:"tractorVerification,omitempty"`
+	TrailerVerification string   `json:"trailerVerification,omitempty"`
 }
 
 type snapshot struct {
@@ -42,6 +44,8 @@ type snapshot struct {
 	LocationName   string                  `json:"locationName"`
 	TrailerType    string                  `json:"trailerType"`
 	LicenseDetails *lookups.LicenseDetails `json:"licenseDetails,omitempty"`
+	TractorDetails *lookups.VehicleDetails `json:"tractorDetails,omitempty"`
+	TrailerDetails *lookups.VehicleDetails `json:"trailerDetails,omitempty"`
 }
 
 func (in *createInput) normalize() (pgtype.UUID, bool) {
