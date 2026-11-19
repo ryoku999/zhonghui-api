@@ -140,8 +140,11 @@ func (s service) create(c fiber.Ctx) error {
 		history["locationId"], history["locationName"] = "HISTORY", "HISTORY"
 		fields := []string{
 			"locationId", "locationName", "ruc", "legalName", "documentType", "documentNumber",
-			"firstNames", "lastNames", "licenseNumber", "phone", "tractorPlate", "trailerPlate", "trailerType",
+			"firstNames", "lastNames", "licenseNumber", "phone", "tractorPlate",
 			"unitDescription", "notes",
+		}
+		if input.TrailerPlate != "" {
+			fields = append(fields, "trailerPlate", "trailerType")
 		}
 		provenance := db.WriteLoadProvenanceParams{
 			LoadRecordID: id, Version: 1, FieldNames: fields,

@@ -87,15 +87,18 @@ func resolveParties(ctx context.Context, q *db.Queries, data *snapshot, record *
 		data.LicenseID = ids[0].String()
 	}
 
-	vehicles := []struct {
+	type vehicleRef struct {
 		field, plate, kind string
 		id                 *pgtype.UUID
-	}{
+	}
+	vehicles := []vehicleRef{
 		{"tractorPlate", data.TractorPlate, "TRACTOR", &record.TractorID},
-		{"trailerPlate", data.TrailerPlate, "TRAILER", &record.TrailerID},
+	}
+	if data.TrailerPlate != "" {
+		vehicles = append(vehicles, vehicleRef{"trailerPlate", data.TrailerPlate, "TRAILER", &record.TrailerID})
 	}
 	// Acquire plate locks in the same order across concurrent registrations.
-	if vehicles[0].plate > vehicles[1].plate {
+	if len(vehicles) == 2 && vehicles[0].plate > vehicles[1].plate {
 		vehicles[0], vehicles[1] = vehicles[1], vehicles[0]
 	}
 	for _, vehicle := range vehicles {

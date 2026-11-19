@@ -58,6 +58,7 @@ func (in *createInput) normalize() (pgtype.UUID, bool) {
 	}
 	in.Phone = strings.TrimSpace(in.Phone)
 	plate := strings.NewReplacer(" ", "", "-", "")
+	hasTrailer := strings.TrimSpace(in.TrailerPlate) != ""
 	in.TractorPlate = plate.Replace(strings.ToUpper(strings.TrimSpace(in.TractorPlate)))
 	in.TrailerPlate = plate.Replace(strings.ToUpper(strings.TrimSpace(in.TrailerPlate)))
 	in.UnitDescription = strings.TrimSpace(in.UnitDescription)
@@ -78,8 +79,9 @@ func (in *createInput) normalize() (pgtype.UUID, bool) {
 		in.FirstNames != "" && within(in.FirstNames, 120) &&
 		in.LastNames != "" && within(in.LastNames, 120) &&
 		within(in.LicenseNumber, 60) && within(in.Phone, 40) &&
-		platePattern.MatchString(in.TractorPlate) && platePattern.MatchString(in.TrailerPlate) &&
-		in.TractorPlate != in.TrailerPlate && within(in.UnitDescription, 200) && within(in.Notes, 1000)
+		platePattern.MatchString(in.TractorPlate) &&
+		(!hasTrailer || (platePattern.MatchString(in.TrailerPlate) && in.TractorPlate != in.TrailerPlate)) &&
+		within(in.UnitDescription, 200) && within(in.Notes, 1000)
 	return id, valid
 }
 

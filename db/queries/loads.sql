@@ -29,7 +29,7 @@ RETURNING last_number;
 INSERT INTO load_records (loading_location_id, business_date, order_number, company_id, driver_id,
     driver_license_id, tractor_id, trailer_id, unit_description, notes, created_by, created_at, updated_at)
 VALUES (sqlc.arg(loading_location_id), sqlc.arg(business_date), sqlc.arg(order_number), sqlc.arg(company_id),
-    sqlc.arg(driver_id), sqlc.narg(driver_license_id), sqlc.arg(tractor_id), sqlc.arg(trailer_id),
+    sqlc.arg(driver_id), sqlc.narg(driver_license_id), sqlc.arg(tractor_id), sqlc.narg(trailer_id),
     sqlc.narg(unit_description), sqlc.narg(notes), sqlc.arg(created_by), sqlc.arg(recorded_at), sqlc.arg(recorded_at))
 RETURNING id;
 
